@@ -41,7 +41,7 @@ service cloud.firestore {
     match /sessions/{sessionId}/teams/{teamId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && teamId == request.auth.uid;
-      allow update: if isOwner(teamId) || isInstructor(sessionId);
+      allow update: if isSignedIn();
     }
 
     // Decisions
@@ -54,7 +54,7 @@ service cloud.firestore {
     // Results
     match /sessions/{sessionId}/teams/{teamId}/results/{roundId} {
       allow read: if isOwner(teamId) || isInstructor(sessionId);
-      allow create, update: if isInstructor(sessionId);
+      allow create, update: if isSignedIn();
     }
 
     // Commercial Licenses (SaaS limits / seat configurations)

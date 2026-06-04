@@ -1087,11 +1087,10 @@ export function InstructorDashboard() {
                   {session.status === 'active' && (
                     <button
                       onClick={advanceRound}
-                      disabled={!everyoneReady && allTeams.length > 0}
-                      className={`w-full py-3.5 flex items-center justify-center gap-1.5 font-sans font-black uppercase text-xs tracking-widest rounded-xl border-b-4 transition-all select-none cursor-pointer ${everyoneReady ? 'bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-900 active:border-b shadow-md active:translate-y-0.5' : 'bg-zinc-900/10 border-muffin-brown/20 text-gray-450 opacity-60 cursor-not-allowed'}`}
+                      className="w-full py-3.5 flex items-center justify-center gap-1.5 font-sans font-black uppercase text-xs tracking-widest rounded-xl border-b-4 bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-900 active:border-b shadow-md active:translate-y-0.5 transition-all select-none cursor-pointer"
                     >
                       <FastForward className="w-4 h-4" />
-                      {everyoneReady ? 'Advance Daily Cycle' : 'Waiting for Chef matrices'}
+                      Advance Daily Cycle
                     </button>
                   )}
 
