@@ -1297,13 +1297,17 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const nextRound = currentRound + 1;
       const isEnded = nextRound > currentSessionData.totalRounds;
 
-      // In a real app we'd fetch in transaction. For simplicity here:
+      // 1. PERFORM ALL READS FIRST (Firestore requires all reads before any writes in a transaction)
+      const decisionsMap: Record<string, any> = {};
       for (const team of allTeams) {
         const decRef = doc(db, `sessions/${sessionId}/teams/${team.id}/decisions`, `r${currentRound}`);
         const decSnap = await transaction.get(decRef);
-        
-        // If no decision, create a dummy one
-        const decisionData = decSnap.exists() ? (decSnap.data() as Decision) : {
+        decisionsMap[team.id] = decSnap.exists() ? decSnap.data() : null;
+      }
+
+      // 2. PERFORM ALL WRITES SECOND
+      for (const team of allTeams) {
+        const decisionData = decisionsMap[team.id] || {
           productionQty: {},
           rawMaterialOrder: 0,
           marketingSpend: 0,
