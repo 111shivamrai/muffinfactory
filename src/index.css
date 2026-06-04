@@ -1,0 +1,442 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700;800&display=swap');
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --bg-app: #f8fafc;      /* Clean slate white-grey */
+  --text-app: #0f172a;     /* Deep elegant slate charcoal */
+  --bg-darker: #f1f5f9;    /* Clean divider grey */
+  --bg-card: #ffffff;      /* Crisp white card */
+  --border-app: #e2e8f0;   /* Clean slate-200 border */
+  --header-bg: #f1f5f9;    /* Header crisp light grey */
+}
+
+.dark {
+  --bg-app: #080c14;       /* Premium deep slate black */
+  --text-app: #f1f5f9;      /* Crisp light grey text */
+  --bg-darker: #04060a;     /* Deepest solid black */
+  --bg-card: #0f172a;       /* Slate 900 dark card background */
+  --border-app: #1e293b;    /* Slate 800 clean border */
+  --header-bg: #04060a;     /* Header solid black */
+}
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-dynamic-bg: var(--bg-app);
+  --color-dynamic-text: var(--text-app);
+  --color-dynamic-darker: var(--bg-darker);
+  --color-dynamic-card: var(--bg-card);
+  --color-dynamic-border: var(--border-app);
+  --color-dynamic-header: var(--header-bg);
+
+  /* Sophisticated Professional Bronze & Gold Accent Colors */
+  --color-muffin-gold: #d97706;      /* Premium amber accent */
+  --color-muffin-amber: #b45309;     /* Deep amber */
+  --color-muffin-brown: #475569;     /* Cool slate-600 */
+  --color-muffin-espresso: #0f172a;  /* Deep slate-900 */
+  --color-muffin-cream: #f1f5f9;     /* Slate-100 */
+  --color-muffin-crust: #c2410c;     /* Toasted copper accent */
+}
+
+@keyframes dash {
+  to {
+    stroke-dashoffset: -32;
+  }
+}
+
+/* ============================
+   FACTORY FLOOR ORIGINAL PIXEL ANIMATIONS
+   ============================ */
+
+/* Conveyor Belt Loop - 9.27% is exactly the distance between two cupcakes in the image */
+@keyframes belt-scroll-cupcakes {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(9.27%); }
+}
+
+/* Mixer Batter Spin - Rotates the exact original pixels of the batter */
+@keyframes mixer-batter-spin {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Icer Drip Fall - Strict vertical masked drip */
+@keyframes icer-drip-fall {
+  0%   { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+
+/* Icer Buildup */
+@keyframes icer-buildup {
+  0%   { transform: scaleY(0.2) scaleX(0.8); opacity: 0; }
+  20%  { opacity: 1; }
+  100% { transform: scaleY(1) scaleX(1); opacity: 1; }
+}
+
+/* Packer Box Slide - A single box sliding completely out of frame */
+@keyframes single-box-slide {
+  0%   { transform: translateX(0); opacity: 0; }
+  5%   { opacity: 1; }
+  85%  { opacity: 1; }
+  100% { transform: translateX(20%); opacity: 0; }
+}
+
+
+/* Factory floor container */
+.factory-floor-animated {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 12px;
+}
+
+.factory-floor-animated img.factory-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 55% center;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Animation overlay layer */
+.factory-anim-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Mixer batter spin overlay */
+.anim-mixer-spin {
+  position: absolute;
+  left: 7.5%;
+  top: 48%;
+  width: 8%;
+  height: 8%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(245,171,183,0.35) 0%, rgba(245,171,183,0.08) 70%, transparent 100%);
+  animation: mixer-batter-spin 3s linear infinite;
+}
+
+.anim-mixer-wobble {
+  position: absolute;
+  left: 4%;
+  top: 42%;
+  width: 14%;
+  height: 16%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse, rgba(245,171,183,0.12) 0%, transparent 70%);
+  animation: mixer-batter-wobble 2.5s ease-in-out infinite;
+}
+
+/* Icer drip overlay */
+.anim-icer-drip {
+  position: absolute;
+  left: 57.5%;
+  top: 38%;
+  width: 3px;
+  height: 0;
+  background: linear-gradient(180deg, rgba(245,171,183,0.9), rgba(245,171,183,0.3));
+  border-radius: 0 0 2px 2px;
+  animation: icer-drip 4s ease-in-out infinite;
+}
+
+.anim-icer-plate {
+  position: absolute;
+  left: 54%;
+  top: 50%;
+  width: 10%;
+  height: 8%;
+  animation: icer-plate-wiggle 4s ease-in-out infinite;
+}
+
+/* Packer box slide */
+.anim-packer-box {
+  position: absolute;
+  right: 5%;
+  bottom: 22%;
+  width: 6%;
+  height: 5%;
+  background: rgba(194,160,108,0.5);
+  border-radius: 2px;
+  animation: packer-box-slide 6s ease-in-out infinite;
+}
+
+/* Conveyor cupcakes - individual cupcake dots moving across belt */
+.anim-conveyor-cupcake {
+  position: absolute;
+  bottom: 10%;
+  width: 4%;
+  height: 5%;
+  border-radius: 50% 50% 4px 4px;
+  background: radial-gradient(circle at 50% 40%, rgba(194,160,108,0.4) 0%, rgba(194,160,108,0.15) 70%, transparent 100%);
+  animation: conveyor-cupcake-move 10s linear infinite;
+}
+.anim-conveyor-cupcake:nth-child(1) { left: 5%; animation-delay: 0s; }
+.anim-conveyor-cupcake:nth-child(2) { left: 5%; animation-delay: -1.67s; }
+.anim-conveyor-cupcake:nth-child(3) { left: 5%; animation-delay: -3.33s; }
+.anim-conveyor-cupcake:nth-child(4) { left: 5%; animation-delay: -5s; }
+.anim-conveyor-cupcake:nth-child(5) { left: 5%; animation-delay: -6.67s; }
+.anim-conveyor-cupcake:nth-child(6) { left: 5%; animation-delay: -8.33s; }
+
+/* Subtle conveyor belt track motion */
+.anim-conveyor-track {
+  position: absolute;
+  left: 2%;
+  right: 2%;
+  bottom: 8%;
+  height: 10%;
+  background: repeating-linear-gradient(
+    90deg,
+    rgba(100,100,100,0.05) 0px,
+    rgba(100,100,100,0.05) 2px,
+    transparent 2px,
+    transparent 24px
+  );
+  animation: conveyor-track-scroll 1s linear infinite;
+}
+
+@keyframes machinery-vibe {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-1.5px) scale(0.99); }
+}
+
+@keyframes ambient-glow {
+  0%, 100% { opacity: 0.25; filter: saturate(100%); }
+  50% { opacity: 0.35; filter: saturate(140%); }
+}
+
+@keyframes float-bubble {
+  0% { transform: translateY(100%) scale(0.7); opacity: 0; }
+  20% { opacity: 0.7; }
+  80% { opacity: 0.7; }
+  100% { transform: translateY(-20%) scale(1.1); opacity: 0; }
+}
+
+.pipeline-flow {
+  stroke-dasharray: 8 4;
+  animation: dash 0.9s linear infinite;
+}
+
+.pipeline-flow-fast {
+  stroke-dasharray: 6 3;
+  animation: dash 0.45s linear infinite;
+}
+
+.machine-active-vibe {
+  animation: machinery-vibe 0.12s linear infinite;
+}
+
+.ambient-breathing {
+  animation: ambient-glow 4s ease-in-out infinite;
+}
+
+.baking-liquid-bubble {
+  animation: float-bubble 3s ease-in-out infinite;
+}
+
+@keyframes beaters-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes steam-rise {
+  0% { transform: translateY(0px) translateX(0px) scale(0.8); opacity: 0; }
+  30% { opacity: 0.6; }
+  80% { opacity: 0.6; }
+  100% { transform: translateY(-35px) translateX(6px) scale(1.3); opacity: 0; }
+}
+
+@keyframes oven-glow {
+  0%, 100% { filter: drop-shadow(0 0 4px rgba(249, 115, 22, 0.4)) saturate(100%); }
+  50% { filter: drop-shadow(0 0 12px rgba(249, 115, 22, 0.8)) saturate(140%); }
+}
+
+@keyframes conveyor-belt {
+  to { background-position: -24px 0; }
+}
+
+@keyframes counter-lamp-pulse {
+  0%, 100% { filter: drop-shadow(0 4px 6px rgba(217, 119, 6, 0.15)); }
+  50% { filter: drop-shadow(0 8px 16px rgba(217, 119, 6, 0.35)); }
+}
+
+@keyframes screen-shake {
+  0%, 100% { transform: translateX(0) translateY(0); }
+  10% { transform: translateX(-3px) translateY(1px); }
+  30% { transform: translateX(3px) translateY(-2px); }
+  50% { transform: translateX(-2px) translateY(1px); }
+  70% { transform: translateX(2px) translateY(-1px); }
+  90% { transform: translateX(-1px) translateY(1px); }
+}
+
+.animate-shake {
+  animation: screen-shake 0.3s ease-in-out;
+}
+
+.animate-spin-slow {
+  animation: spin 3s linear infinite;
+}
+
+@keyframes fever-border-glow {
+  0%, 100% { box-shadow: 0 0 10px rgba(245, 158, 11, 0.2), inset 0 0 10px rgba(245, 158, 11, 0.05); }
+  50% { box-shadow: 0 0 25px rgba(245, 158, 11, 0.4), inset 0 0 20px rgba(245, 158, 11, 0.1); }
+}
+
+.beaters-spinning {
+  animation: beaters-spin 0.4s linear infinite;
+}
+
+.steam-rising {
+  animation: steam-rise 2.2s ease-out infinite;
+}
+
+.oven-glowing {
+  animation: oven-glow 2s ease-in-out infinite;
+}
+
+.conveyor-belt-scroll {
+  background-image: repeating-linear-gradient(90deg, var(--border-app) 0px, var(--border-app) 3px, transparent 3px, transparent 12px);
+  background-size: 24px 100%;
+  animation: conveyor-belt 1.2s linear infinite;
+}
+
+.conveyor-belt-scroll-fast {
+  background-image: repeating-linear-gradient(90deg, var(--border-app) 0px, var(--border-app) 3px, transparent 3px, transparent 12px);
+  background-size: 24px 100%;
+  animation: conveyor-belt 0.6s linear infinite;
+}
+
+.counter-lamp-glow {
+  animation: counter-lamp-pulse 3s ease-in-out infinite;
+}
+
+.bakery-tile-backdrop {
+  background-color: var(--bg-darker);
+  background-image: radial-gradient(var(--border-app) 1.5px, transparent 1.5px);
+  background-size: 16px 16px;
+}
+
+/* ==========================================
+   PREMIUM LIGHT THEME BRANDING OVERRIDES
+   ========================================== */
+.light {
+  /* Override main dark app background & typography colors */
+  &,
+  .bg-\[\#1c1c1a\], 
+  .bg-\[\#111110\], 
+  .bg-\[\#070707\], 
+  .bg-\[\#090909\],
+  .bg-\[\#0e0e0e\],
+  .bg-\[\#0d0d0c\],
+  .bg-\[\#121212\],
+  .bg-zinc-950,
+  .bg-black {
+    background-color: var(--bg-app) !important;
+    color: var(--text-app) !important;
+  }
+
+  /* Core Card Overrides - panels, dialogs, lists, and sliders */
+  .bg-black\/80,
+  .bg-black\/90,
+  .bg-zinc-950\/80,
+  .bg-zinc-950\/50,
+  .bg-\[\#111111\],
+  .bg-\[\#111\],
+  .bg-\[\#222\],
+  .bg-zinc-900,
+  .bg-zinc-900\/90,
+  .bg-\[\#1c1c1a\]\/90,
+  .bg-\[\#2C4A6B\]\/10,
+  .bg-\[\#121211\] {
+    background-color: var(--bg-card) !important;
+    border-color: var(--border-app) !important;
+    color: var(--text-app) !important;
+  }
+
+  /* Text & Labels */
+  .text-white,
+  .text-zinc-100,
+  .text-zinc-200,
+  .text-zinc-300,
+  .text-zinc-400,
+  .text-gray-100,
+  .text-gray-200,
+  .text-gray-300,
+  .text-\[\#ededeb\] {
+    color: var(--text-app) !important;
+  }
+
+  /* Subdued Labels and System Metrics */
+  .text-zinc-500,
+  .text-gray-500,
+  .text-\[\#52525b\],
+  .text-\[\#a8a8a4\] {
+    color: #52525b !important; /* Zinc 650 */
+  }
+
+  /* Borders & Dividers */
+  .border-zinc-805,
+  .border-zinc-800,
+  .border-zinc-850,
+  .border-zinc-900,
+  .border-gray-850,
+  .border-gray-800,
+  .border-gray-700,
+  .border-slate-800,
+  .border-\[\#3c3c3a\],
+  .border-\[\#bebfa4\] {
+    border-color: var(--border-app) !important;
+  }
+
+  /* Input fields, select lists and textual textareas */
+  input, select, textarea, .bg-zinc-950, .bg-\[\#090909\], .bg-zinc-900\/90 input {
+    background-color: var(--bg-card) !important;
+    border-color: var(--border-app) !important;
+    color: var(--text-app) !important;
+  }
+
+  input::placeholder {
+    color: #8b8d99 !important; /* Muted slate placeholder text */
+  }
+
+  /* Interactive Form Fields inside student inputs */
+  .bg-zinc-900 input, .bg-stone-900 input {
+    background-color: var(--bg-app) !important;
+  }
+
+  /* Sticky Headers, Navigation Bars & Indicators */
+  header, .h-16, .bg-\[\#1c1c1a\]\/90, .bg-zinc-950 {
+    background-color: var(--header-bg) !important;
+    border-color: var(--border-app) !important;
+  }
+
+  /* Dynamic visual factory floor whiteboard layout */
+  .bg-\[\#dadad5\] {
+    background-color: #f8fafc !important;
+    border-color: #cbd5e1 !important;
+    color: #0f172a !important;
+  }
+
+  /* All factory floor labels */
+  .bg-\[\#dadad5\] div,
+  .bg-\[\#dadad5\] span,
+  .bg-\[\#dadad5\] p,
+  .bg-\[\#dadad5\] h3 {
+    color: #1c1c1a !important;
+  }
+
+  /* Specific sub-widgets & panels */
+  .bg-slate-900, .bg-slate-950 {
+    background-color: var(--bg-card) !important;
+    color: var(--text-app) !important;
+    border-color: var(--border-app) !important;
+  }
+}

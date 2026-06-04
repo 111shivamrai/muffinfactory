@@ -1,0 +1,131 @@
+{
+  "entities": {
+    "Session": {
+      "title": "Game Session",
+      "description": "Represents an active game instance managed by an instructor.",
+      "type": "object",
+      "properties": {
+        "instructorId": { "type": "string" },
+        "code": { "type": "string" },
+        "status": { "type": "string", "enum": ["waiting", "active", "paused", "ended"] },
+        "currentRound": { "type": "integer" },
+        "totalRounds": { "type": "integer" },
+        "settings": {
+          "type": "object",
+          "properties": {
+            "roundDuration": { "type": "integer" },
+            "difficulty": { "type": "string", "enum": ["easy", "medium", "hard"] }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["instructorId", "code", "status", "currentRound", "totalRounds", "settings", "createdAt"]
+    },
+    "Team": {
+      "title": "Team",
+      "description": "A group of students participating in a session.",
+      "type": "object",
+      "properties": {
+        "sessionId": { "type": "string" },
+        "name": { "type": "string" },
+        "balance": { "type": "number" },
+        "inventory": { "type": "integer" },
+        "rawMaterials": { "type": "integer" },
+        "satisfaction": { "type": "number" },
+        "ready": { "type": "boolean" },
+        "joinedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["sessionId", "name", "balance", "inventory", "rawMaterials", "satisfaction", "ready"]
+    },
+    "Decision": {
+      "title": "Round Decision",
+      "description": "Decision made by a team for a specific round.",
+      "type": "object",
+      "properties": {
+        "sessionId": { "type": "string" },
+        "teamId": { "type": "string" },
+        "round": { "type": "integer" },
+        "productionQty": { "type": "integer" },
+        "rawMaterialOrder": { "type": "integer" },
+        "marketingSpend": { "type": "number" },
+        "submittedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["sessionId", "teamId", "round", "productionQty", "rawMaterialOrder"]
+    },
+    "Result": {
+      "title": "Round Result",
+      "description": "Calculation output for a team after a round ends.",
+      "type": "object",
+      "properties": {
+        "sessionId": { "type": "string" },
+        "teamId": { "type": "string" },
+        "round": { "type": "integer" },
+        "revenue": { "type": "number" },
+        "profit": { "type": "number" },
+        "soldQty": { "type": "integer" },
+        "missedDemand": { "type": "integer" },
+        "productionCost": { "type": "number" },
+        "inventoryCost": { "type": "number" },
+        "rawMaterialCost": { "type": "number" },
+        "penalties": { "type": "number" }
+      },
+      "required": ["sessionId", "teamId", "round", "revenue", "profit", "soldQty"]
+    },
+    "License": {
+      "title": "Commercial License",
+      "description": "SaaS licensing profiles permitting restricted seats for students.",
+      "type": "object",
+      "properties": {
+        "customerName": { "type": "string" },
+        "email": { "type": "string" },
+        "maxSeats": { "type": "integer" },
+        "type": { "type": "string", "enum": ["academic", "corporate"] },
+        "status": { "type": "string", "enum": ["active", "expired", "suspended"] },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "notes": { "type": "string" }
+      },
+      "required": ["customerName", "email", "maxSeats", "type", "status", "expiresAt", "createdAt"]
+    },
+    "SystemLog": {
+      "title": "SaaS System Fault Log",
+      "description": "Live error diagnostics uploaded when clients experience connection faults.",
+      "type": "object",
+      "properties": {
+        "timestamp": { "type": "string", "format": "date-time" },
+        "errorMessage": { "type": "string" },
+        "severity": { "type": "string", "enum": ["warning", "error", "fatal"] },
+        "component": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "sessionId": { "type": "string" }
+      },
+      "required": ["timestamp", "errorMessage", "severity", "component"]
+    }
+  },
+  "firestore": {
+    "/sessions/{sessionId}": {
+      "schema": "Session",
+      "description": "Game sessions indexed by unique ID."
+    },
+    "/sessions/{sessionId}/teams/{teamId}": {
+      "schema": "Team",
+      "description": "Teams within a session."
+    },
+    "/sessions/{sessionId}/teams/{teamId}/decisions/{roundId}": {
+      "schema": "Decision",
+      "description": "Decisions for each round."
+    },
+    "/sessions/{sessionId}/teams/{teamId}/results/{roundId}": {
+      "schema": "Result",
+      "description": "Results for each round."
+    },
+    "/licenses/{licenseId}": {
+      "schema": "License",
+      "description": "Commercial multi-seat access profiles."
+    },
+    "/system_logs/{logId}": {
+      "schema": "SystemLog",
+      "description": "Diagnostic and crash system logs."
+    }
+  }
+}

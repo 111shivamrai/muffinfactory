@@ -1,0 +1,6 @@
+{
+  "name": "Muffin Factory Simulator",
+  "description": "A multi-player muffin production simulation game for management training.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
