@@ -590,11 +590,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       // ═══ 1. INSTRUCTOR MATCH IN SESSIONS ═══
-      const instSession = allSessions.find(s =>
-        (s.customInstructorId === loginId && s.customInstructorPassword === pwd) ||
+      const instSession = allSessions.find(s => {
+        if (s.status === 'deleted') return false;
+        return (s.customInstructorId === loginId && s.customInstructorPassword === pwd) ||
         (s.instructorIdMock === loginId && s.instructorPassword === pwd) ||
-        (s.instructorId === loginId && s.instructorPassword === pwd)
-      );
+        (s.instructorId === loginId && s.instructorPassword === pwd);
+      });
 
       if (instSession) {
         // Date schedule checks
@@ -774,6 +775,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const teamRef = doc(db, `sessions/${licSession.id}/teams`, loginId);
           const teamSnap = await getDoc(teamRef);
           if (!teamSnap.exists() || teamSnap.data()?.status === 'deleted') {
+            if (licSession.status !== 'waiting') {
+              throw new Error("The factory has already started production! New operators cannot join mid-game. Please ask your instructor to reset the lobby.");
+            }
             await setDoc(teamRef, {
               sessionId: licSession.id, name: loginId.toUpperCase(),
               balance: INITIAL_VALUES.BALANCE, inventory: { standard: 0 },
@@ -784,7 +788,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
               deliveries: [], contracts: getInitialContracts()
             });
           }
-        } catch (e) { console.warn("Student team creation failed:", e); }
+        } catch (e: any) { 
+          if (e.message && e.message.includes("factory has already started")) {
+            throw e;
+          }
+          console.warn("Student team creation failed:", e); 
+        }
 
         const mockUser = {
           uid: loginId, email: loginId, emailVerified: true, isAnonymous: false,
