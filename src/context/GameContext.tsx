@@ -563,7 +563,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       try {
         const sessionsSnap = await getDocs(collection(db, 'sessions'));
-        allSessions = sessionsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+        allSessions = sessionsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any)).sort((a, b) => {
+          const tA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const tB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return tB - tA;
+        });
       } catch (e) {
         console.warn('Failed to fetch sessions directly:', e);
       }
@@ -577,7 +581,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       try {
         const licensesSnap = await getDocs(collection(db, 'licenses'));
-        allLicenses = licensesSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+        allLicenses = licensesSnap.docs.map(d => ({ id: d.id, ...d.data() } as any)).sort((a, b) => {
+          const tA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const tB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return tB - tA;
+        });
       } catch (e) {
         console.warn('Failed to fetch licenses directly (may require auth):', e);
       }
