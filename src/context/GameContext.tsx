@@ -666,10 +666,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             });
           }
         } catch (e: any) { 
-          if (e.message && e.message.includes("factory has already started")) {
-            throw e;
-          }
-          console.warn("Auto-creation of student team failed:", e); 
+          throw e;
         }
 
         const mockUser = {
@@ -789,10 +786,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             });
           }
         } catch (e: any) { 
-          if (e.message && e.message.includes("factory has already started")) {
-            throw e;
-          }
-          console.warn("Student team creation failed:", e); 
+          throw e;
         }
 
         const mockUser = {
@@ -808,57 +802,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
     } catch (err: any) {
-      if (err.message && (err.message.includes('expired') || err.message.includes('initialized') || err.message.includes('scheduled'))) {
-        sessionStorage.removeItem('active_mock_user');
-        throw err;
-      }
-      console.error("Firestore credential check failed:", err);
-    }
-
-    // ═══ LOCAL STORAGE FALLBACK (offline mode) ═══
-    const credsStr = localStorage.getItem('mock_credentials');
-    if (credsStr) {
-      try {
-        const creds = JSON.parse(credsStr);
-        if (loginId === creds.instId && pwd === creds.instPass) {
-          const localSessStr = localStorage.getItem(`mock_session_${creds.code}`);
-          const localSess = localSessStr ? JSON.parse(localSessStr) : null;
-          const mockUser = {
-            uid: loginId, email: loginId, emailVerified: true, isAnonymous: false,
-            isMock: true, mockRole: 'instructor', mockSessionCode: creds.code,
-          };
-          sessionStorage.setItem('active_mock_user', JSON.stringify({
-            uid: loginId, email: loginId, role: 'instructor', sessionCode: creds.code
-          }));
-          setSession(localSess ? { id: creds.code, ...localSess } : {
-            id: creds.code, instructorId: loginId, code: creds.code,
-            status: 'waiting', currentRound: 0, totalRounds: 10,
-            settings: { roundDuration: 120, difficulty: 'medium', totalRounds: 10, capacity: 40 },
-            createdAt: new Date().toISOString()
-          } as any);
-          setUser(mockUser as any);
-          return;
-        }
-        if (loginId === creds.studId && pwd === creds.studPass) {
-          const localSessStr = localStorage.getItem(`mock_session_${creds.code}`);
-          const localSess = localSessStr ? JSON.parse(localSessStr) : null;
-          const mockUser = {
-            uid: loginId, email: loginId, emailVerified: true, isAnonymous: false,
-            isMock: true, mockRole: 'student', mockSessionCode: creds.code,
-          };
-          sessionStorage.setItem('active_mock_user', JSON.stringify({
-            uid: loginId, email: loginId, role: 'student', sessionCode: creds.code
-          }));
-          setSession(localSess ? { id: creds.code, ...localSess } : {
-            id: creds.code, instructorId: creds.instId, code: creds.code,
-            status: 'waiting', currentRound: 0, totalRounds: 10,
-            settings: { roundDuration: 120, difficulty: 'medium', totalRounds: 10, capacity: 40 },
-            createdAt: new Date().toISOString()
-          } as any);
-          setUser(mockUser as any);
-          return;
-        }
-      } catch (e) { console.error("Local credential parse failed:", e); }
+      sessionStorage.removeItem('active_mock_user');
+      throw err;
     }
 
     // Login failed — clean up sentinel
