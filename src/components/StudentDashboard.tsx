@@ -22,7 +22,7 @@ import {
   Play,
   Pause
 } from 'lucide-react';
-import { GameContext } from '../context/GameContext';
+
 import { RoundResult, Contract, DEFAULT_STATIONS } from '../types';
 import { db } from '../firebase';
 import { doc, updateDoc } from 'firebase/firestore';
@@ -108,8 +108,15 @@ export function StudentDashboard() {
     updateActiveMachines,
     updateProcurementSettingsEx,
     theme,
-    toggleTheme
+    toggleTheme,
+    logout
   } = useGame();
+
+  const handleExit = async () => {
+    setIsDirectPlay(false);
+    window.location.hash = '';
+    await logout();
+  };
 
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [showContractsModal, setShowContractsModal] = useState(false);

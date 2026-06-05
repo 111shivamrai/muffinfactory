@@ -197,7 +197,7 @@ export function processDecision(
     // Contract becomes offered at their target appear day.
     // We check round + 1 because this logic runs at the end of the current round to prepare the state for the next round.
     if (c.status === 'pending' && (round + 1) >= c.appearsAtDay) {
-      return { ...c, status: 'offered' };
+      return { ...c, status: 'offered' as const };
     }
     return c;
   });

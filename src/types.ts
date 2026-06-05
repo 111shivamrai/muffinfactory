@@ -68,7 +68,7 @@ export interface Contract {
 export interface Delivery {
   roundArriving: number;
   quantity: number;
-  item?: 'flour' | 'sugar' | 'cocoa'; // Specific raw material item
+  item?: 'flour' | 'sugar' | 'eggs' | 'cocoa'; // Specific raw material item
 }
 
 export interface Team {
