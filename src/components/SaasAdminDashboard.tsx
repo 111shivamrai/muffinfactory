@@ -425,6 +425,18 @@ export function SaasAdminDashboard() {
   const handleRemoveSession = async (id: string) => {
     if (!confirm(`Are you sure you want to remove session ${id}? This deletes the lobby entirely.`)) return;
     try { 
+      try {
+        const teamsColl = collection(db, 'sessions', id, 'teams');
+        const teamsSnap = await getDocs(teamsColl);
+        for (const docSnap of teamsSnap.docs) {
+          try { await deleteDoc(docSnap.ref); } catch (e) {
+            await updateDoc(docSnap.ref, { status: 'deleted' });
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to wipe teams:", err);
+      }
+      
       await updateDoc(doc(db, 'sessions', id), { status: 'deleted' }); 
       try {
         const localSessStr = localStorage.getItem('local_sessions') || '[]';

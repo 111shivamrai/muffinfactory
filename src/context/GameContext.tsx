@@ -374,8 +374,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const teamsRef = collection(db, `sessions/${session.id}/teams`);
     const unsubTeams = onSnapshot(teamsRef, (snap) => {
-      const teams = snap.docs.map(d => ({ id: d.id, ...d.data() } as Team));
-      setAllTeams(teams);
+      const teams = snap.docs.map(d => ({ id: d.id, ...d.data() } as any)).filter(t => t.status !== 'deleted');
+      setAllTeams(teams as Team[]);
       
       const baseUid = user?.uid ? user.uid.split(/[-_]/)[0] : '';
       const mine = teams.find(t => t.id === user?.uid || t.id === baseUid);
