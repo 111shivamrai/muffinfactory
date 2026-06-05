@@ -10,7 +10,8 @@ import {
   DEFAULT_PARAMETERS,
   Contract,
   Delivery,
-  StationConfig
+  StationConfig,
+  DEFAULT_STATIONS
 } from '../types';
 
 export function calculateDemand(
@@ -67,7 +68,7 @@ export function getInitialContracts(): Contract[] {
       fillRateRequired: 95,
       fillRatePenalty: 1000,
       exitPenalty: 47500,
-      status: 'offered',
+      status: 'pending',
       deliveredCount: 0,
       demandedCount: 0
     }
@@ -85,16 +86,11 @@ export function processDecision(
 ): { updatedTeam: Team; result: RoundResult } {
   
   // Initialize customizable properties on team if missing
-  const stations = team.stations || {
-    mixing: { owned: 2, active: 2, capacityPerMachine: 54, purchasePrice: 20000 },
-    bottling: { owned: 3, active: 3, capacityPerMachine: 24, purchasePrice: 30000 },
-    icing: { owned: 2, active: 1, capacityPerMachine: 55, purchasePrice: 60000 },
-    packaging: { owned: 1, active: 1, capacityPerMachine: 216, purchasePrice: 100000 }
-  };
+  const stations = team.stations || JSON.parse(JSON.stringify(DEFAULT_STATIONS));
 
   // If icing config is missing, initialize it
   if (!stations.icing) {
-    stations.icing = { owned: 2, active: 1, capacityPerMachine: 55, purchasePrice: 60000 };
+    stations.icing = { ...DEFAULT_STATIONS.icing };
   }
   
   const deliveries: Delivery[] = team.deliveries || [];
@@ -162,7 +158,8 @@ export function processDecision(
   cocoa -= actualProduction;
 
   // Incur daily variable production charge
-  const productionCost = actualProduction * 2; // $2 per bottle/muffin
+  const standardProduct = parameters.products.find(p => p.id === 'standard') || PRODUCTS[0];
+  const productionCost = actualProduction * standardProduct.productionCost;
   let finishedGoodsStock = (team.inventory['standard'] || 0) + actualProduction;
 
   // 3. Continuous (Q, R) Policy Trigger Evaluation
@@ -172,28 +169,35 @@ export function processDecision(
   // Flour
   const incomingFlour = remainingDeliveries.filter(d => d.item === 'flour' || !d.item).reduce((acc, d) => acc + d.quantity, 0);
   if (flour + incomingFlour <= flourR) {
-    remainingDeliveries.push({ roundArriving: round + 1, quantity: flourQ, item: 'flour' }); // 1 day lead time (approx rounded)
+    remainingDeliveries.push({ roundArriving: round + parameters.baseLeadTime, quantity: flourQ, item: 'flour' });
     rawMaterialOrderCost += (flourQ * rawMaterialPrice) + 100;
   }
   // Sugar
   const incomingSugar = remainingDeliveries.filter(d => d.item === 'sugar').reduce((acc, d) => acc + d.quantity, 0);
   if (sugar + incomingSugar <= sugarR) {
-    remainingDeliveries.push({ roundArriving: round + 1, quantity: sugarQ, item: 'sugar' });
+    remainingDeliveries.push({ roundArriving: round + parameters.baseLeadTime, quantity: sugarQ, item: 'sugar' });
     rawMaterialOrderCost += (sugarQ * rawMaterialPrice) + 100;
+  }
+  // Eggs
+  const incomingEggs = remainingDeliveries.filter(d => d.item === 'eggs').reduce((acc, d) => acc + d.quantity, 0);
+  if (eggs + incomingEggs <= eggsR) {
+    remainingDeliveries.push({ roundArriving: round + parameters.baseLeadTime, quantity: eggsQ, item: 'eggs' });
+    rawMaterialOrderCost += (eggsQ * rawMaterialPrice) + 100;
   }
   // Cocoa
   const incomingCocoa = remainingDeliveries.filter(d => d.item === 'cocoa').reduce((acc, d) => acc + d.quantity, 0);
   if (cocoa + incomingCocoa <= cocoaR) {
-    remainingDeliveries.push({ roundArriving: round + 2, quantity: cocoaQ, item: 'cocoa' }); // 2 days lead time
+    remainingDeliveries.push({ roundArriving: round + parameters.baseLeadTime, quantity: cocoaQ, item: 'cocoa' });
     rawMaterialOrderCost += (cocoaQ * rawMaterialPrice) + 100;
   }
 
   // 4. Sales Phase
   // Dynamic update of contract states and offers
   const updatedContracts = contracts.map(c => {
-    // Contract becomes offered at their target appear day
-    if (c.status === 'offered' && round >= c.appearsAtDay) {
-      return { ...c };
+    // Contract becomes offered at their target appear day.
+    // We check round + 1 because this logic runs at the end of the current round to prepare the state for the next round.
+    if (c.status === 'pending' && (round + 1) >= c.appearsAtDay) {
+      return { ...c, status: 'offered' };
     }
     return c;
   });
@@ -225,7 +229,7 @@ export function processDecision(
   const deliveredRetail = Math.min(finishedGoodsStock, retailDemand);
   finishedGoodsStock -= deliveredRetail;
   
-  const retailRevenue = deliveredRetail * 20; // sold at retail price of $20/bottle
+  const retailRevenue = deliveredRetail * standardProduct.sellingPrice;
   const missedRetailDemand = retailDemand - deliveredRetail;
 
   const totalRevenue = contractRevenue + retailRevenue;
@@ -284,9 +288,10 @@ export function processDecision(
     cocoaROP: cocoaR,
     stations,
     deliveries: remainingDeliveries,
-    contracts: updatedContracts,
-    currentDecision: undefined // Reset decision slot after processing
+    contracts: updatedContracts
   };
+  
+  delete updatedTeam.currentDecision; // Prevent Firebase crash with undefined
 
   const result: RoundResult = {
     id: `r${round}`,

@@ -33,8 +33,8 @@ import {
   orderBy
 } from 'firebase/firestore';
 import { logSystemError } from '../utils/logger';
-import { Session, Team, Decision, RoundResult, GameStatus, INITIAL_VALUES, GameSettings, GameEvent, Product, SimulationParameters, DEFAULT_PARAMETERS } from '../types';
-import { processDecision } from '../lib/gameLogic';
+import { Session, Team, Decision, RoundResult, GameStatus, INITIAL_VALUES, GameSettings, GameEvent, Product, SimulationParameters, DEFAULT_PARAMETERS, DEFAULT_STATIONS } from '../types';
+import { processDecision, getInitialContracts } from '../lib/gameLogic';
 
 // Helper to add timeout to any promise
 export const withTimeout = <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
@@ -212,13 +212,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       joinedAt: new Date().toISOString(),
       orderQuantity: 2000,
       reorderPoint: 500,
-      stations: {
-        mixing: { owned: 2, active: 2, capacityPerMachine: 54, purchasePrice: 20000 },
-        bottling: { owned: 3, active: 3, capacityPerMachine: 24, purchasePrice: 30000 },
-        packaging: { owned: 1, active: 1, capacityPerMachine: 216, purchasePrice: 100000 }
-      },
+      stations: JSON.parse(JSON.stringify(DEFAULT_STATIONS)),
       deliveries: [],
-      contracts: []
+      contracts: getInitialContracts()
     };
   });
 
@@ -658,13 +654,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
               joinedAt: new Date().toISOString(),
               orderQuantity: 2000,
               reorderPoint: 500,
-              stations: {
-                mixing: { owned: 2, active: 2, capacityPerMachine: 54, purchasePrice: 20000 },
-                bottling: { owned: 3, active: 3, capacityPerMachine: 24, purchasePrice: 30000 },
-                packaging: { owned: 1, active: 1, capacityPerMachine: 216, purchasePrice: 100000 }
-              },
+              stations: JSON.parse(JSON.stringify(DEFAULT_STATIONS)),
               deliveries: [],
-              contracts: []
+              contracts: getInitialContracts()
             });
           }
         } catch (e) { console.warn("Auto-creation of student team failed:", e); }
@@ -778,12 +770,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
               rawMaterials: INITIAL_VALUES.RAW_MATERIALS, satisfaction: 100,
               ready: false, joinedAt: new Date().toISOString(),
               orderQuantity: 2000, reorderPoint: 500,
-              stations: {
-                mixing: { owned: 2, active: 2, capacityPerMachine: 54, purchasePrice: 20000 },
-                bottling: { owned: 3, active: 3, capacityPerMachine: 24, purchasePrice: 30000 },
-                packaging: { owned: 1, active: 1, capacityPerMachine: 216, purchasePrice: 100000 }
-              },
-              deliveries: [], contracts: []
+              stations: JSON.parse(JSON.stringify(DEFAULT_STATIONS)),
+              deliveries: [], contracts: getInitialContracts()
             });
           }
         } catch (e) { console.warn("Student team creation failed:", e); }
@@ -883,6 +871,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const activeSession = isDirectPlay ? directSession : session;
     if (!activeSession || activeSession.status !== 'active') return;
 
+    // In multiplayer, only the instructor/admin should drive the auto-advance timer
+    if (!isDirectPlay && !isAdmin && user?.uid !== activeSession.instructorId) {
+      return;
+    }
+
     // Default duration is 120s if not specified
     const duration = activeSession.settings?.roundDuration || 120;
     if (duration > 3600) {
@@ -922,7 +915,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     checkAndAdvance();
     const timer = setInterval(checkAndAdvance, 1000);
     return () => clearInterval(timer);
-  }, [session?.status, session?.roundStartedAt, session?.settings?.roundDuration, isDirectPlay, directSession?.status, directSession?.roundStartedAt, directSession?.settings?.roundDuration]);
+  }, [session?.status, session?.roundStartedAt, session?.settings?.roundDuration, session?.instructorId, isDirectPlay, directSession?.status, directSession?.roundStartedAt, directSession?.settings?.roundDuration, isAdmin, user?.uid]);
 
   const logout = async () => {
     sessionStorage.removeItem('active_mock_user');
@@ -1117,14 +1110,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         joinedAt: new Date().toISOString(),
         orderQuantity: 2000,
         reorderPoint: 500,
-        stations: {
-          mixing: { owned: 3, active: 2, capacityPerMachine: 24, purchasePrice: 20000 },
-          bottling: { owned: 3, active: 3, capacityPerMachine: 48, purchasePrice: 30000 },
-          icing: { owned: 2, active: 1, capacityPerMachine: 55, purchasePrice: 60000 },
-          packaging: { owned: 1, active: 1, capacityPerMachine: 72, purchasePrice: 100000 }
-        },
+        stations: JSON.parse(JSON.stringify(DEFAULT_STATIONS)),
         deliveries: [],
-        contracts: []
+        contracts: getInitialContracts()
       };
 
       await setDoc(doc(db, `sessions/${code}/teams`, baseUid), team);
@@ -1299,7 +1287,15 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // 1. PERFORM ALL READS FIRST (Firestore requires all reads before any writes in a transaction)
       const decisionsMap: Record<string, any> = {};
+      const teamsDataMap: Record<string, Team> = {};
+
       for (const team of allTeams) {
+        const teamRef = doc(db, `sessions/${sessionId}/teams/${team.id}`);
+        const teamSnap = await transaction.get(teamRef);
+        if (teamSnap.exists()) {
+          teamsDataMap[team.id] = teamSnap.data() as Team;
+        }
+
         const decRef = doc(db, `sessions/${sessionId}/teams/${team.id}/decisions`, `r${currentRound}`);
         const decSnap = await transaction.get(decRef);
         decisionsMap[team.id] = decSnap.exists() ? decSnap.data() : null;
@@ -1307,6 +1303,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // 2. PERFORM ALL WRITES SECOND
       for (const team of allTeams) {
+        const liveTeamData = teamsDataMap[team.id];
+        if (!liveTeamData) continue;
+
         const decisionData = decisionsMap[team.id] || {
           productionQty: {},
           rawMaterialOrder: 0,
@@ -1314,12 +1313,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
 
         const { updatedTeam, result } = processDecision(
-          team, 
+          liveTeamData, 
           decisionData as Decision, 
           currentRound, 
           [], // We should ideally pass prev results but logic is mostly round-independent for now
           currentSessionData.settings.capacity || INITIAL_VALUES.CAPACITY,
-          currentSessionData.activeEvent
+          currentSessionData.activeEvent,
+          currentSessionData.settings.parameters
         );
 
         const teamRef = doc(db, `sessions/${sessionId}/teams/${team.id}`);
@@ -1417,13 +1417,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       joinedAt: new Date().toISOString(),
       orderQuantity: 2000,
       reorderPoint: 500,
-      stations: {
-        mixing: { owned: 2, active: 2, capacityPerMachine: 54, purchasePrice: 20000 },
-        bottling: { owned: 3, active: 3, capacityPerMachine: 24, purchasePrice: 30000 },
-        packaging: { owned: 1, active: 1, capacityPerMachine: 216, purchasePrice: 100000 }
-      },
+      stations: JSON.parse(JSON.stringify(DEFAULT_STATIONS)),
       deliveries: [],
-      contracts: []
+      contracts: getInitialContracts()
     });
 
     setDirectResults([]);
@@ -1475,18 +1471,14 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const buyMachine = async (stationId: 'mixing' | 'bottling' | 'packaging' | 'icing') => {
     if (isDirectPlay) {
       setDirectTeam(t => {
-        const stations = t.stations || {
-          mixing: { owned: 2, active: 2, capacityPerMachine: 24, purchasePrice: 20000 },
-          bottling: { owned: 3, active: 3, capacityPerMachine: 48, purchasePrice: 30000 },
-          icing: { owned: 2, active: 1, capacityPerMachine: 55, purchasePrice: 60000 },
-          packaging: { owned: 1, active: 1, capacityPerMachine: 72, purchasePrice: 100000 }
-        };
+        const stations = t.stations || JSON.parse(JSON.stringify(DEFAULT_STATIONS));
         if (!stations.icing) {
-          stations.icing = { owned: 2, active: 1, capacityPerMachine: 55, purchasePrice: 60000 };
+          stations.icing = { ...DEFAULT_STATIONS.icing };
         }
         const st = stations[stationId];
-        if (t.balance < st.purchasePrice) {
-          alert(`Insufficient funds in Vault! Machine costs ₹${st.purchasePrice.toLocaleString()}.`);
+        const actualPrice = DEFAULT_STATIONS[stationId].purchasePrice;
+        if (t.balance < actualPrice) {
+          alert(`Insufficient funds! Total Cash is too low. Machine costs ₹${actualPrice.toLocaleString()}.`);
           return t;
         }
         const updatedStations = {
@@ -1494,12 +1486,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           [stationId]: {
             ...st,
             owned: st.owned + 1,
-            active: st.active + 1
+            active: st.active + 1,
+            purchasePrice: actualPrice // Auto-heal stale data
           }
         };
         return {
           ...t,
-          balance: t.balance - st.purchasePrice,
+          balance: t.balance - actualPrice,
           stations: updatedStations
         };
       });
@@ -1507,18 +1500,14 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     if (!session?.id || !currentTeam?.id) return;
     const teamRef = doc(db, `sessions/${session.id}/teams`, currentTeam.id);
-    const stations = currentTeam.stations || {
-      mixing: { owned: 2, active: 2, capacityPerMachine: 24, purchasePrice: 20000 },
-      bottling: { owned: 3, active: 3, capacityPerMachine: 48, purchasePrice: 30000 },
-      icing: { owned: 2, active: 1, capacityPerMachine: 55, purchasePrice: 60000 },
-      packaging: { owned: 1, active: 1, capacityPerMachine: 72, purchasePrice: 100000 }
-    };
+    const stations = currentTeam.stations || JSON.parse(JSON.stringify(DEFAULT_STATIONS));
     if (!stations.icing) {
-      stations.icing = { owned: 2, active: 1, capacityPerMachine: 55, purchasePrice: 60000 };
+      stations.icing = { ...DEFAULT_STATIONS.icing };
     }
     const st = stations[stationId];
-    if (currentTeam.balance < st.purchasePrice) {
-      alert(`Insufficient funds in Vault! Machine costs ₹${st.purchasePrice.toLocaleString()}.`);
+    const actualPrice = DEFAULT_STATIONS[stationId].purchasePrice;
+    if (currentTeam.balance < actualPrice) {
+      alert(`Insufficient funds! Total Cash is too low. Machine costs ₹${actualPrice.toLocaleString()}.`);
       return;
     }
     const updatedStations = {
@@ -1526,11 +1515,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       [stationId]: {
         ...st,
         owned: st.owned + 1,
-        active: st.active + 1
+        active: st.active + 1,
+        purchasePrice: actualPrice // Auto-heal stale data
       }
     };
     await updateDoc(teamRef, {
-      balance: currentTeam.balance - st.purchasePrice,
+      balance: currentTeam.balance - actualPrice,
       stations: updatedStations
     });
   };
@@ -1538,14 +1528,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateActiveMachines = async (stationId: 'mixing' | 'bottling' | 'packaging' | 'icing', count: number) => {
     if (isDirectPlay) {
       setDirectTeam(t => {
-        const stations = t.stations || {
-          mixing: { owned: 2, active: 2, capacityPerMachine: 24, purchasePrice: 20000 },
-          bottling: { owned: 3, active: 3, capacityPerMachine: 48, purchasePrice: 30000 },
-          icing: { owned: 2, active: 1, capacityPerMachine: 55, purchasePrice: 60000 },
-          packaging: { owned: 1, active: 1, capacityPerMachine: 72, purchasePrice: 100000 }
-        };
+        const stations = t.stations || JSON.parse(JSON.stringify(DEFAULT_STATIONS));
         if (!stations.icing) {
-          stations.icing = { owned: 2, active: 1, capacityPerMachine: 55, purchasePrice: 60000 };
+          stations.icing = { ...DEFAULT_STATIONS.icing };
         }
         const st = stations[stationId];
         const validActive = Math.max(0, Math.min(st.owned, count));
@@ -1562,14 +1547,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     if (!session?.id || !currentTeam?.id) return;
     const teamRef = doc(db, `sessions/${session.id}/teams`, currentTeam.id);
-    const stations = currentTeam.stations || {
-      mixing: { owned: 2, active: 2, capacityPerMachine: 24, purchasePrice: 20000 },
-      bottling: { owned: 3, active: 3, capacityPerMachine: 48, purchasePrice: 30000 },
-      icing: { owned: 2, active: 1, capacityPerMachine: 55, purchasePrice: 60000 },
-      packaging: { owned: 1, active: 1, capacityPerMachine: 72, purchasePrice: 100000 }
-    };
+    const stations = currentTeam.stations || JSON.parse(JSON.stringify(DEFAULT_STATIONS));
     if (!stations.icing) {
-      stations.icing = { owned: 2, active: 1, capacityPerMachine: 55, purchasePrice: 60000 };
+      stations.icing = { ...DEFAULT_STATIONS.icing };
     }
     const st = stations[stationId];
     const validActive = Math.max(0, Math.min(st.owned, count));

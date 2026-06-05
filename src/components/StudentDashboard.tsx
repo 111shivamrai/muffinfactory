@@ -22,6 +22,8 @@ import {
   Play,
   Pause
 } from 'lucide-react';
+import { GameContext } from '../context/GameContext';
+import { RoundResult, Contract, DEFAULT_STATIONS } from '../types';
 import { db } from '../firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 import { AnimatedFactoryFloor } from "./AnimatedFactoryFloor";
@@ -306,7 +308,7 @@ export function StudentDashboard() {
               <span className="font-mono font-black">{session.code}</span>
             </div>
             <div className="flex justify-between text-xs">
-              <span className="font-bold text-[#8c7662]">STARTING BALANCE:</span>
+              <span className="font-bold text-[#8c7662]">STARTING TOTAL CASH:</span>
               <span className="font-black text-indigo-700">₹{currentTeam.balance.toLocaleString()}</span>
             </div>
           </div>
@@ -741,7 +743,7 @@ export function StudentDashboard() {
             </div>
           </div>
 
-          {/* Balance Pill */}
+          {/* Total Cash Pill */}
           <div className="header-pill">
             <span className="text-xl">💵</span>
             <div className="flex flex-col text-left leading-none">
@@ -966,7 +968,7 @@ export function StudentDashboard() {
                         <button 
                           onClick={() => {
                             if (mixingRunning >= mixingOwned) {
-                              handleBuyMachineClick('mixing', 'Mixer', 50000);
+                              handleBuyMachineClick('mixing', 'Mixer', DEFAULT_STATIONS.mixing.purchasePrice);
                             } else {
                               setMixingRunning(p => p + 1);
                             }
@@ -1006,7 +1008,7 @@ export function StudentDashboard() {
                         <button 
                           onClick={() => {
                             if (bakingRunning >= bakingOwned) {
-                              handleBuyMachineClick('bottling', 'Baker', 75000);
+                              handleBuyMachineClick('bottling', 'Baker', DEFAULT_STATIONS.bottling.purchasePrice);
                             } else {
                               setBakingRunning(p => p + 1);
                             }
@@ -1046,7 +1048,7 @@ export function StudentDashboard() {
                         <button 
                           onClick={() => {
                             if (icingRunning >= icingOwned) {
-                              handleBuyMachineClick('icing', 'Icer', 60000);
+                              handleBuyMachineClick('icing', 'Icer', DEFAULT_STATIONS.icing.purchasePrice);
                             } else {
                               setIcingRunning(p => p + 1);
                             }
@@ -1086,7 +1088,7 @@ export function StudentDashboard() {
                         <button 
                           onClick={() => {
                             if (packingRunning >= packingOwned) {
-                              handleBuyMachineClick('packaging', 'Packager', 40000);
+                              handleBuyMachineClick('packaging', 'Packager', DEFAULT_STATIONS.packaging.purchasePrice);
                             } else {
                               setPackingRunning(p => p + 1);
                             }

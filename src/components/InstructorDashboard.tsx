@@ -37,7 +37,7 @@ import {
   FastForward,
   Loader2
 } from 'lucide-react';
-import { Difficulty, GameEvent, EventType, Session, Team } from '../types';
+import { Difficulty, GameEvent, EventType, Session, Team, Contract, DEFAULT_PARAMETERS } from '../types';
 import { Timer } from './Timer';
 import { db } from '../firebase';
 import { doc, updateDoc, deleteDoc, getDocs, collectionGroup, collection, query, orderBy, where } from 'firebase/firestore';
@@ -140,6 +140,57 @@ const PRESET_SCENARIOS = [
       packaging: { capacityPerMachine: 48, purchasePrice: 105000 }
     },
     starsThresholds: [950000, 1300000, 2000000]
+  },
+  {
+    id: 'sodapop_exp_endless',
+    name: 'Muffin Experience 3 - Endless Mode (Infinite Days)',
+    description: 'Perfect for long-running continuous play. The simulation will run infinitely without stopping.',
+    simulatedDays: 9999,
+    lengthRealTime: 9999,
+    productionCost: 5,
+    interestRate: 10,
+    rmUnitPrice: 2,
+    fixedCostPerOrder: 100,
+    leadTime: 4,
+    sellingPrice: 20,
+    contracts: [
+      {
+        id: 'c1',
+        name: 'Muffin Cargo Pack A',
+        appearsAtDay: 1,
+        beginsAtDay: 3,
+        endsAtDay: 9999,
+        dailyDemand: 50,
+        pricePerUnit: 20,
+        fillRateRequired: 75,
+        fillRatePenalty: 1500,
+        exitPenalty: 6250,
+        deliveredCount: 0,
+        demandedCount: 0,
+        status: 'offered'
+      }
+    ],
+    poissonDemand: true,
+    breakingPoints: [
+      { day: 0, demand: 100 },
+      { day: 10, demand: 150 },
+      { day: 40, demand: 200 },
+      { day: 100, demand: 250 },
+      { day: 9999, demand: 300 }
+    ],
+    initialCash: 850000,
+    initialRawMaterials: 12000,
+    initialQ: 12000,
+    initialR: 2300,
+    initialMachinesMixing: 1,
+    initialMachinesBottling: 2,
+    initialMachinesPackaging: 3,
+    stations: {
+      mixing: { capacityPerMachine: 24, purchasePrice: 20000 },
+      bottling: { capacityPerMachine: 48, purchasePrice: 30000 },
+      packaging: { capacityPerMachine: 72, purchasePrice: 100000 }
+    },
+    starsThresholds: [829500, 1000000, 1500000]
   }
 ];
 
@@ -343,7 +394,7 @@ export function InstructorDashboard() {
       const isCritical = team.balance < alertSettings.cashMin * 0.7;
       alerts.push({
         type: 'cash',
-        message: `Cash balance ₹${team.balance.toLocaleString(undefined, { maximumFractionDigits: 0 })} drops below safeguard limit (₹${alertSettings.cashMin.toLocaleString()})`,
+        message: `Total Cash ₹${team.balance.toLocaleString(undefined, { maximumFractionDigits: 0 })} drops below safeguard limit (₹${alertSettings.cashMin.toLocaleString()})`,
         severity: isCritical ? 'critical' : 'warning'
       });
     }
@@ -506,7 +557,13 @@ export function InstructorDashboard() {
         roundDuration: Math.max(30, Math.round((chosenScenario.lengthRealTime * 60) / chosenScenario.simulatedDays)),
         difficulty: 'medium',
         totalRounds: chosenScenario.simulatedDays,
-        capacity: chosenScenario.stations.mixing.capacityPerMachine
+        capacity: chosenScenario.stations.mixing.capacityPerMachine,
+        parameters: {
+          ...DEFAULT_PARAMETERS,
+          baseLeadTime: chosenScenario.leadTime,
+          storageCost: chosenScenario.interestRate / 10,
+          rawMaterialUnitPrice: chosenScenario.rmUnitPrice,
+        }
       },
       createdAt: new Date().toISOString(),
       roundStartedAt: new Date().toISOString()
@@ -582,7 +639,7 @@ export function InstructorDashboard() {
 
       resultsData.sort((a, b) => a.round - b.round || a.teamId.localeCompare(b.teamId));
       
-      const csvHeaders = "Team Name,Simulated Day,Simulated Hour,Muffins Sold,Revenue (₹),Cost (₹),Profit (₹),Cash Balance (₹),Customer Satisfaction (%),Reorder Policy Q,Reorder Point R\n";
+      const csvHeaders = "Team Name,Simulated Day,Simulated Hour,Muffins Sold,Revenue (₹),Cost (₹),Profit (₹),Total Cash (₹),Customer Satisfaction (%),Reorder Policy Q,Reorder Point R\n";
       const csvRows = resultsData.map(r => {
         const team = allTeams.find(t => t.id === r.teamId);
         const teamLabel = team ? team.name : r.teamId;
@@ -1134,7 +1191,7 @@ export function InstructorDashboard() {
                             onChange={(e) => setAlertSettings(prev => ({ ...prev, cashEnabled: e.target.checked }))}
                             className="rounded border-muffin-brown/30 text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5 cursor-pointer"
                           />
-                          <span>Cash Balance Limit</span>
+                          <span>Total Cash Limit</span>
                         </label>
                         <span className="font-mono font-black text-emerald-600 bg-emerald-500/10 border border-emerald-500/25 px-1.5 py-0.5 rounded text-[10px]">
                           ₹{alertSettings.cashMin.toLocaleString()}
@@ -1359,7 +1416,7 @@ export function InstructorDashboard() {
                         <tr className="bg-[#2D4A6B]/15 text-[#2d4a6b] font-black uppercase tracking-wider border-b border-muffin-brown/15 select-none">
                           <th className="p-3 text-center">Rank</th>
                           <th className="p-3">Team Name</th>
-                          <th className="p-3">Cash Balance (INR)</th>
+                          <th className="p-3">Total Cash (INR)</th>
                           <th className="p-3">Muffin Stock</th>
                           <th className="p-3">Satisfaction</th>
                           <th className="p-3 text-right pr-4">Admin Actions</th>

@@ -11,6 +11,7 @@ export interface GameSettings {
   difficulty: Difficulty;
   totalRounds: number;
   capacity: number;
+  parameters?: SimulationParameters;
 }
 
 export type EventType = 'material_shortage' | 'demand_surge' | 'machine_breakdown';
@@ -59,7 +60,7 @@ export interface Contract {
   fillRateRequired: number; // e.g. 70
   fillRatePenalty: number;
   exitPenalty: number;
-  status: 'offered' | 'accepted' | 'aborted' | 'finished';
+  status: 'pending' | 'offered' | 'accepted' | 'aborted' | 'finished';
   deliveredCount: number;
   demandedCount: number;
 }
@@ -172,6 +173,7 @@ export interface SimulationParameters {
   initialBalance: number;
   initialRawMaterials: number;
   initialCapacity: number;
+  baseLeadTime: number;
 }
 
 export const DEFAULT_PARAMETERS: SimulationParameters = {
@@ -182,6 +184,7 @@ export const DEFAULT_PARAMETERS: SimulationParameters = {
   initialBalance: 2000000,
   initialRawMaterials: 12000,
   initialCapacity: 72,
+  baseLeadTime: 1, // Default to 1 day
 };
 
 export const INITIAL_VALUES = {
@@ -190,6 +193,13 @@ export const INITIAL_VALUES = {
   CAPACITY: 72, // per round
   STORAGE_COST: 1, // per unit in inventory
   RAW_MATERIAL_UNIT_PRICE: 8,
+};
+
+export const DEFAULT_STATIONS = {
+  mixing: { owned: 2, active: 2, capacityPerMachine: 54, purchasePrice: 50000 },
+  bottling: { owned: 3, active: 3, capacityPerMachine: 24, purchasePrice: 75000 },
+  icing: { owned: 2, active: 1, capacityPerMachine: 55, purchasePrice: 60000 },
+  packaging: { owned: 1, active: 1, capacityPerMachine: 216, purchasePrice: 40000 }
 };
 
 export interface License {
