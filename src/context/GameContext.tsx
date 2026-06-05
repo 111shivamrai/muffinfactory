@@ -646,9 +646,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const teamSnap = await getDoc(teamRef);
           
           if (!teamSnap.exists() || teamSnap.data()?.status === 'deleted') {
-            if (studSession.status !== 'waiting') {
-              throw new Error("The factory has already started production! New operators cannot join mid-game. Please ask your instructor to reset the lobby.");
-            }
             await setDoc(teamRef, {
               sessionId: studSession.id,
               name: loginId.toUpperCase(),
@@ -772,9 +769,6 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const teamRef = doc(db, `sessions/${licSession.id}/teams`, loginId);
           const teamSnap = await getDoc(teamRef);
           if (!teamSnap.exists() || teamSnap.data()?.status === 'deleted') {
-            if (licSession.status !== 'waiting') {
-              throw new Error("The factory has already started production! New operators cannot join mid-game. Please ask your instructor to reset the lobby.");
-            }
             await setDoc(teamRef, {
               sessionId: licSession.id, name: loginId.toUpperCase(),
               balance: INITIAL_VALUES.BALANCE, inventory: { standard: 0 },
