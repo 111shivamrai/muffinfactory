@@ -248,7 +248,7 @@ export function SaasAdminDashboard() {
     });
 
     const unsubSessions = onSnapshot(collection(db, 'sessions'), async (snap) => {
-      const sessionsRaw = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+      const sessionsRaw = snap.docs.map(d => ({ id: d.id, ...d.data() } as any)).filter(s => s.status !== 'deleted');
       const enriched = await Promise.all(
         sessionsRaw.map(async (sess) => {
           try {
@@ -425,7 +425,7 @@ export function SaasAdminDashboard() {
   const handleRemoveSession = async (id: string) => {
     if (!confirm(`Are you sure you want to remove session ${id}? This deletes the lobby entirely.`)) return;
     try { 
-      await deleteDoc(doc(db, 'sessions', id)); 
+      await updateDoc(doc(db, 'sessions', id), { status: 'deleted' }); 
       try {
         const localSessStr = localStorage.getItem('local_sessions') || '[]';
         const localSessList = JSON.parse(localSessStr);
