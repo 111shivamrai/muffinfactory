@@ -620,6 +620,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // ═══ 2. STUDENT MATCH IN SESSIONS ═══
       const studSession = allSessions.find(s => {
+        if (s.status === 'deleted') return false;
         // Check studentAccounts array
         if (Array.isArray(s.studentAccounts) && s.studentAccounts.some((a: any) => a.studentId === loginId && a.studentPassword === pwd)) return true;
         // Check legacy/custom single-student fields
@@ -685,7 +686,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         // Check if a session already exists for this license
-        const existingSess = allSessions.find(s => s.licenseCode === instLicense.id);
+        const existingSess = allSessions.find(s => s.licenseCode === instLicense.id && s.status !== 'deleted');
         if (existingSess) {
           // Use the existing session
           const mockUser = {
@@ -701,7 +702,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         // Auto-provision a new session
-        const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+        const code = instLicense.id; // Reuse the license ID to cleanly overwrite any old soft-deleted sessions!
         const newSession: any = {
           instructorId: instLicense.instructorId || loginId,
           customInstructorId: instLicense.instructorId || loginId,
@@ -754,7 +755,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         // Find the active session for this license
-        const licSession = allSessions.find(s => s.licenseCode === studLicense.id && s.status !== 'ended');
+        const licSession = allSessions.find(s => s.licenseCode === studLicense.id && s.status !== 'ended' && s.status !== 'deleted');
         if (!licSession) {
           throw new Error("Your instructor has not initialized the classroom session yet. Please wait for your instructor to launch the session, then try again.");
         }
