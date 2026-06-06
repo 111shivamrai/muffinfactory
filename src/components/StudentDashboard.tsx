@@ -1383,9 +1383,15 @@ export function StudentDashboard() {
             </div>
             
             <div className="p-1.5 space-y-1 flex-1 overflow-y-auto min-h-0">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-left border-collapse table-fixed">
+                <colgroup>
+                  <col style={{ width: '35%' }} />
+                  <col style={{ width: '32%' }} />
+                  <col style={{ width: '18%' }} />
+                  <col style={{ width: '15%' }} />
+                </colgroup>
                 <thead>
-                  <tr className="border-b border-[#e6ccb2] text-[9.5px] uppercase tracking-wider text-[#8a7360] font-black">
+                  <tr className="border-b border-[#e6ccb2] text-[9.5px] uppercase tracking-wider text-[#8a7360] font-black whitespace-nowrap">
                     <th className="pb-1">Item</th>
                     <th className="pb-1 text-center">Order Qty</th>
                     <th className="pb-1 text-center">ROP</th>
@@ -1395,8 +1401,8 @@ export function StudentDashboard() {
                 <tbody className="divide-y divide-dashed divide-[#e6ccb2] text-[12px] font-extrabold">
                   {/* Flour */}
                   <tr>
-                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11]">
-                      <span>🥖</span> Flour ({Math.round(gameState?.flourStock ?? flourStock)})
+                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11] whitespace-nowrap">
+                      <span>🥖</span> Flour (Stock: {Math.round(gameState?.flourStock ?? flourStock)})
                     </td>
                     <td className="py-[1px]">
                       <div className="qty-control justify-center">
@@ -1416,13 +1422,13 @@ export function StudentDashboard() {
                         <button onClick={() => setFlourR(0)} className="text-[#c62828] text-[10px] font-black hover:scale-125 transition-transform" title="Clear">✕</button>
                       </div>
                     </td>
-                    <td className="py-[1px] text-right lead-lbl-large font-mono">1.2d</td>
+                    <td className="py-[1px] text-right lead-lbl-large font-mono whitespace-nowrap">1.2 Days</td>
                   </tr>
                   
                   {/* Sugar */}
                   <tr>
-                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11]">
-                      <span>🥣</span> Sugar ({Math.round(gameState?.sugarStock ?? sugarStock)})
+                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11] whitespace-nowrap">
+                      <span>🥣</span> Sugar (Stock: {Math.round(gameState?.sugarStock ?? sugarStock)})
                     </td>
                     <td className="py-[1px]">
                       <div className="qty-control justify-center">
@@ -1442,13 +1448,13 @@ export function StudentDashboard() {
                         <button onClick={() => setSugarR(0)} className="text-[#c62828] text-[10px] font-black hover:scale-125 transition-transform" title="Clear">✕</button>
                       </div>
                     </td>
-                    <td className="py-[1px] text-right lead-lbl-large font-mono">1.0d</td>
+                    <td className="py-[1px] text-right lead-lbl-large font-mono whitespace-nowrap">1.0 Days</td>
                   </tr>
 
                   {/* Cocoa */}
                   <tr>
-                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11]">
-                      <span>🫙</span> Cocoa ({Math.round(gameState?.cocoaStock ?? cocoaStock)})
+                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11] whitespace-nowrap">
+                      <span>🫙</span> Cocoa (Stock: {Math.round(gameState?.cocoaStock ?? cocoaStock)})
                     </td>
                     <td className="py-[1px]">
                       <div className="qty-control justify-center">
@@ -1468,7 +1474,7 @@ export function StudentDashboard() {
                         <button onClick={() => setCocoaR(0)} className="text-[#c62828] text-[10px] font-black hover:scale-125 transition-transform" title="Clear">✕</button>
                       </div>
                     </td>
-                    <td className="py-[1px] text-right lead-lbl-large font-mono">1.5d</td>
+                    <td className="py-[1px] text-right lead-lbl-large font-mono whitespace-nowrap">1.5 Days</td>
                   </tr>
                 </tbody>
               </table>
@@ -1525,9 +1531,16 @@ export function StudentDashboard() {
             </div>
 
             <div className="p-1.5 space-y-1 flex-1 overflow-y-auto min-h-0">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-left border-collapse table-fixed">
+                <colgroup>
+                  <col style={{ width: '25%' }} />
+                  <col style={{ width: '32%' }} />
+                  <col style={{ width: '11%' }} />
+                  <col style={{ width: '22%' }} />
+                  <col style={{ width: '10%' }} />
+                </colgroup>
                 <thead>
-                  <tr className="border-b border-[#e6ccb2] text-[9.5px] uppercase tracking-wider text-[#8a7360] font-black">
+                  <tr className="border-b border-[#e6ccb2] text-[9.5px] uppercase tracking-wider text-[#8a7360] font-black whitespace-nowrap">
                     <th className="pb-1">Machine</th>
                     <th className="pb-1 text-center">Running</th>
                     <th className="pb-1 text-center">Total</th>
