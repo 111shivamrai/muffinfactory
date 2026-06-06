@@ -31,8 +31,12 @@ interface FloatingScore {
   text: string;
   color: string;
 }
+interface SodaBottlingGameProps {
+  onReward?: (cash: number, rawMaterials: number) => void;
+  onClose?: () => void;
+}
 
-export function SodaBottlingGame() {
+export function SodaBottlingGame({ onReward, onClose }: SodaBottlingGameProps = {}) {
   const { rewardOvertimeLabor, session, theme } = useGame();
   const isDark = theme === 'dark';
   
@@ -216,6 +220,9 @@ export function SodaBottlingGame() {
             if (dailyBonusEarned < DAILY_MAX_CASH) {
               setDailyBonusEarned(prevCap => Math.min(DAILY_MAX_CASH, prevCap + addedCash));
               rewardOvertimeLabor(addedCash, addedRM);
+              if (onReward) {
+                onReward(addedCash, addedRM);
+              }
               playFreq(1320, 'sine', 0.25, 0.05);
               triggerJudgment(`+₹${addedCash.toLocaleString()} 💰`, 'text-emerald-400');
               triggerFlash('emerald');
@@ -472,6 +479,14 @@ export function SodaBottlingGame() {
             <button onClick={resetGame} className="w-8 h-8 bg-white/5 border border-white/10 rounded-lg flex items-center justify-center cursor-pointer hover:bg-white/10">
               <RotateCcw className="w-4 h-4 text-orange-400" />
             </button>
+            {onClose && (
+              <button 
+                onClick={() => { playFreq(220, 'sine', 0.08); onClose(); }} 
+                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 border border-red-500/30 rounded-lg flex items-center justify-center cursor-pointer text-white font-sans font-black text-[10px] uppercase tracking-wider"
+              >
+                Exit
+              </button>
+            )}
           </div>
         </div>
 

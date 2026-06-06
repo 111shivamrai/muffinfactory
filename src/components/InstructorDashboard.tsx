@@ -46,10 +46,10 @@ import { doc, updateDoc, deleteDoc, getDocs, collectionGroup, collection, query,
 const PRESET_SCENARIOS = [
   {
     id: 'sodapop_exp_1',
-    name: 'Muffin Experience 1 - Intro Muffin (10 Days)',
+    name: 'Muffin Experience 1 - Intro Muffin (365 Days)',
     description: 'Perfect introductory scenario. Students learn material arrivals, bottling capacity constraints, and active fulfillment.',
-    simulatedDays: 10,
-    lengthRealTime: 10,
+    simulatedDays: 365,
+    lengthRealTime: 120,
     productionCost: 5,
     interestRate: 10,
     rmUnitPrice: 2,
@@ -62,7 +62,7 @@ const PRESET_SCENARIOS = [
         name: 'Muffin Cargo Pack A',
         appearsAtDay: 1,
         beginsAtDay: 3,
-        endsAtDay: 8,
+        endsAtDay: 365,
         dailyDemand: 50,
         pricePerUnit: 20,
         fillRateRequired: 75,
@@ -76,7 +76,7 @@ const PRESET_SCENARIOS = [
     poissonDemand: true,
     breakingPoints: [
       { day: 0, demand: 100 },
-      { day: 10, demand: 100 }
+      { day: 365, demand: 100 }
     ],
     initialCash: 850000,
     initialRawMaterials: 12000,
@@ -94,10 +94,10 @@ const PRESET_SCENARIOS = [
   },
   {
     id: 'sodapop_exp_2',
-    name: 'Muffin Experience 2 - High Spike (40 Days)',
+    name: 'Muffin Experience 2 - High Spike (365 Days)',
     description: 'Advanced economics scenario. High-severity material spikes, random surges, challenging delivery lead times.',
-    simulatedDays: 40,
-    lengthRealTime: 45,
+    simulatedDays: 365,
+    lengthRealTime: 120,
     productionCost: 5,
     interestRate: 12,
     rmUnitPrice: 3,
@@ -110,7 +110,7 @@ const PRESET_SCENARIOS = [
         name: 'Metropolitan Food Deal',
         appearsAtDay: 5,
         beginsAtDay: 10,
-        endsAtDay: 35,
+        endsAtDay: 350,
         dailyDemand: 100,
         pricePerUnit: 23,
         fillRateRequired: 80,
@@ -124,8 +124,8 @@ const PRESET_SCENARIOS = [
     poissonDemand: true,
     breakingPoints: [
       { day: 0, demand: 80 },
-      { day: 20, demand: 220 },
-      { day: 40, demand: 90 }
+      { day: 150, demand: 220 },
+      { day: 365, demand: 90 }
     ],
     initialCash: 1000000,
     initialRawMaterials: 15000,
@@ -143,10 +143,10 @@ const PRESET_SCENARIOS = [
   },
   {
     id: 'sodapop_exp_endless',
-    name: 'Muffin Experience 3 - Endless Mode (Infinite Days)',
+    name: 'Muffin Experience 3 - Endless Mode (365 Days)',
     description: 'Perfect for long-running continuous play. The simulation will run infinitely without stopping.',
-    simulatedDays: 9999,
-    lengthRealTime: 9999,
+    simulatedDays: 365,
+    lengthRealTime: 120,
     productionCost: 5,
     interestRate: 10,
     rmUnitPrice: 2,
@@ -159,7 +159,7 @@ const PRESET_SCENARIOS = [
         name: 'Muffin Cargo Pack A',
         appearsAtDay: 1,
         beginsAtDay: 3,
-        endsAtDay: 9999,
+        endsAtDay: 365,
         dailyDemand: 50,
         pricePerUnit: 20,
         fillRateRequired: 75,
@@ -173,10 +173,10 @@ const PRESET_SCENARIOS = [
     poissonDemand: true,
     breakingPoints: [
       { day: 0, demand: 100 },
-      { day: 10, demand: 150 },
-      { day: 40, demand: 200 },
-      { day: 100, demand: 250 },
-      { day: 9999, demand: 300 }
+      { day: 50, demand: 150 },
+      { day: 150, demand: 200 },
+      { day: 250, demand: 250 },
+      { day: 365, demand: 300 }
     ],
     initialCash: 850000,
     initialRawMaterials: 12000,
@@ -275,7 +275,7 @@ export function InstructorDashboard() {
   const [wizardScenarioId, setWizardScenarioId] = useState<string | null>(null);
   const [wName, setWName] = useState('My New Scenario');
   const [wDescription, setWDescription] = useState('Custom class scenario configuration');
-  const [wSimulatedDays, setWSimulatedDays] = useState(30);
+  const [wSimulatedDays, setWSimulatedDays] = useState(365);
   const [wLengthRealTime, setWLengthRealTime] = useState(15);
   const [wProductionCost, setWProductionCost] = useState(5);
   const [wInterestRate, setWInterestRate] = useState(10);
@@ -554,7 +554,7 @@ export function InstructorDashboard() {
       totalRounds: chosenScenario.simulatedDays,
       scoreThresholds: chosenScenario.starsThresholds || [830000, 1000000, 1500000],
       settings: {
-        roundDuration: Math.max(30, Math.round((chosenScenario.lengthRealTime * 60) / chosenScenario.simulatedDays)),
+        roundDuration: 20,
         difficulty: 'medium',
         totalRounds: chosenScenario.simulatedDays,
         capacity: chosenScenario.stations.mixing.capacityPerMachine,
@@ -610,11 +610,20 @@ export function InstructorDashboard() {
       "Incur standard supervisor Raw Material grant of +2,000 U to ALL active teams?",
       async () => {
         for (const t of allTeams) {
+          const flour = t.flourStock !== undefined ? t.flourStock : Math.round(0.35 * (t.rawMaterials || 12000));
+          const sugar = t.sugarStock !== undefined ? t.sugarStock : Math.round(0.25 * (t.rawMaterials || 12000));
+          const eggs = t.eggsStock !== undefined ? t.eggsStock : Math.round(0.20 * (t.rawMaterials || 12000));
+          const cocoa = t.cocoaStock !== undefined ? t.cocoaStock : Math.round(0.20 * (t.rawMaterials || 12000));
+
           await updateTeamState(t.id, {
+            flourStock: flour + 2000,
+            sugarStock: sugar,
+            eggsStock: eggs,
+            cocoaStock: cocoa,
             rawMaterials: (t.rawMaterials || 0) + 2000
           });
         }
-        showAlert("Relief sugar & flour credits successfully dispatched!", "Assistance Dispatched");
+        showAlert("Relief flour credits successfully dispatched!", "Assistance Dispatched");
       },
       "Distribute Resource Relief",
       "Grant Relief"
@@ -674,7 +683,7 @@ export function InstructorDashboard() {
         return;
       }
 
-      const csvHeaders = "Day Offset,Hours Offset,Daily Revenue,Daily Profit,Material Purchase cost,Production expenses,Holding charges,Contract compliance penalties,Corporate Value Balance\n";
+      const csvHeaders = "Day Offset,Hours Offset,Daily Revenue,Daily Profit,Material Purchase cost,Production expenses,Holding charges,Contract compliance penalties,Total Cash\n";
       const csvRows = resultsData.map(r => 
         `${r.round},${r.round * 24},${r.revenue},${r.profit},${r.rawMaterialCost},${r.productionCost},${r.inventoryCost},${r.penalties},${r.balanceAfter}`
       ).join("\n");
@@ -697,9 +706,38 @@ export function InstructorDashboard() {
       const updates: any = {};
       
       if (interveneCash !== '') updates.balance = parseFloat(interveneCash);
-      if (interveneMaterials !== '') updates.rawMaterials = parseInt(interveneMaterials);
-      if (interveneQ !== '') updates.orderQuantity = parseInt(interveneQ);
-      if (interveneR !== '') updates.reorderPoint = parseInt(interveneR);
+      
+      if (interveneMaterials !== '') {
+        const nextRaw = parseInt(interveneMaterials);
+        updates.rawMaterials = nextRaw;
+        // Distribute the new raw materials value proportionally across the 4 stocks
+        updates.flourStock = Math.round(0.35 * nextRaw);
+        updates.sugarStock = Math.round(0.25 * nextRaw);
+        updates.eggsStock = Math.round(0.20 * nextRaw);
+        updates.cocoaStock = Math.round(0.20 * nextRaw);
+      }
+      
+      if (interveneQ !== '') {
+        const nextQ = parseInt(interveneQ);
+        updates.orderQuantity = nextQ;
+        updates.flourOrderQty = nextQ;
+        // Scale other ingredients order quantities proportionally
+        const scale = nextQ / 2000;
+        updates.sugarOrderQty = Math.round(1500 * scale);
+        updates.eggsOrderQty = Math.round(1200 * scale);
+        updates.cocoaOrderQty = Math.round(800 * scale);
+      }
+      
+      if (interveneR !== '') {
+        const nextR = parseInt(interveneR);
+        updates.reorderPoint = nextR;
+        updates.flourROP = nextR;
+        // Scale other ingredients reorder points proportionally
+        const scale = nextR / 500;
+        updates.sugarROP = Math.round(400 * scale);
+        updates.eggsROP = Math.round(300 * scale);
+        updates.cocoaROP = Math.round(200 * scale);
+      }
 
       await updateTeamState(inspectTeam.id, updates);
       
@@ -1074,6 +1112,12 @@ export function InstructorDashboard() {
                     Active Operations Room
                   </h2>
                   
+                  {(session as any).lastAdvanceError && (
+                    <div className="bg-red-500/10 border-2 border-red-500/30 p-3 rounded-xl text-red-700 dark:text-red-400 font-mono text-xs">
+                      <strong>Auto-Advance Error:</strong> {(session as any).lastAdvanceError}
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-2 gap-3.5">
                     <div className="bg-zinc-950/5 dark:bg-white/5 p-3 rounded-xl border border-muffin-brown/10">
                       <span className="text-[8px] uppercase text-gray-400 block font-bold">SESSION TITLE</span>
@@ -1086,7 +1130,7 @@ export function InstructorDashboard() {
                     <div className="bg-zinc-950/5 dark:bg-white/5 p-3 rounded-xl border border-muffin-brown/10">
                       <span className="text-[8px] uppercase text-gray-400 block font-bold">SIMULATED TIME</span>
                       <span className="font-mono font-black text-base text-emerald-600 block mt-0.5">
-                        Day {session.currentRound} <span className="text-[10px] text-gray-400 font-normal">/ {session.totalRounds}</span>
+                        Day {Math.min(session.currentRound, session.totalRounds || 10)} <span className="text-[10px] text-gray-400 font-normal">/ {session.totalRounds || 10}</span>
                       </span>
                     </div>
                     <div className="bg-zinc-950/5 dark:bg-white/5 p-3 rounded-xl border border-muffin-brown/10">
@@ -1143,7 +1187,14 @@ export function InstructorDashboard() {
 
                   {session.status === 'active' && (
                     <button
-                      onClick={advanceRound}
+                      disabled={session.status !== 'active'}
+                      onClick={async () => {
+                        try {
+                          await advanceRound();
+                        } catch (e: any) {
+                          alert("Advance failed: " + (e.message || String(e)));
+                        }
+                      }}
                       className="w-full py-3.5 flex items-center justify-center gap-1.5 font-sans font-black uppercase text-xs tracking-widest rounded-xl border-b-4 bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-900 active:border-b shadow-md active:translate-y-0.5 transition-all select-none cursor-pointer"
                     >
                       <FastForward className="w-4 h-4" />
@@ -2045,7 +2096,7 @@ export function InstructorDashboard() {
                 {wizardStep === 6 && (
                   <div className="space-y-4 animate-[fadeIn_0.3s_ease-out]">
                     <h4 className="font-sans font-black text-[#2c1a0a] text-xs uppercase tracking-wider border-b border-muffin-brown/5 pb-1">Step 6: Stars Achievement thresholds</h4>
-                    <p className="text-[10px] text-gray-400 font-serif leading-relaxed uppercase font-bold text-center">Define student grading star ratings based on cumulative corporate value balance.</p>
+                    <p className="text-[10px] text-gray-400 font-serif leading-relaxed uppercase font-bold text-center">Define student grading star ratings based on cumulative total cash.</p>
                     
                     <div className="space-y-4 max-w-sm mx-auto p-4 border border-muffin-brown/15 rounded-xl bg-zinc-950/5 font-semibold text-xs text-[#2c1a0a]">
                       <div className="space-y-1">
@@ -2147,7 +2198,7 @@ export function InstructorDashboard() {
                     <th className="p-4">Corporate Plant Name</th>
                     <th className="p-4">Operations Day</th>
                     <th className="p-4">Rating CSAT</th>
-                    <th className="p-4 text-right">Corporate Net Value Balance</th>
+                    <th className="p-4 text-right">Total Cash</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-muffin-brown/10 font-bold uppercase text-zinc-300">

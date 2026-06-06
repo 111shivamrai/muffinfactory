@@ -4,7 +4,7 @@
  */
 
 /// <reference types="vite/client" />
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { auth, db } from '../firebase';
 import { 
   onAuthStateChanged, 
@@ -169,9 +169,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const saved = localStorage.getItem('direct_session');
       if (saved) {
         const parsed = JSON.parse(saved);
-        // Migrate old manual-advance sessions to auto-advance
-        if (parsed.settings?.roundDuration >= 3600) {
-          parsed.settings.roundDuration = 15;
+        // Migrate direct session to 365 days and 20s day cycle
+        if (parsed.totalRounds !== 365 || parsed.settings?.roundDuration !== 20) {
+          parsed.totalRounds = 365;
+          if (parsed.settings) {
+            parsed.settings.totalRounds = 365;
+            parsed.settings.roundDuration = 20;
+          }
           if (!parsed.roundStartedAt) parsed.roundStartedAt = new Date().toISOString();
         }
         return parsed;
@@ -183,11 +187,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       code: 'DIRECT',
       status: 'active',
       currentRound: 1,
-      totalRounds: 10,
+      totalRounds: 365,
       settings: {
-        roundDuration: 15,
+        roundDuration: 20,
         difficulty: 'medium',
-        totalRounds: 10,
+        totalRounds: 365,
         capacity: DEFAULT_PARAMETERS.initialCapacity,
       },
       createdAt: new Date().toISOString(),
@@ -837,13 +841,16 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const activeSession = isDirectPlay ? directSession : session;
     if (!activeSession || activeSession.status !== 'active') return;
 
-    // In multiplayer, only the instructor/admin should drive the auto-advance timer
-    if (!isDirectPlay && !isAdmin && user?.uid !== activeSession.instructorId) {
+    // In multiplayer, make sure the user is logged in
+    if (!isDirectPlay && !user?.uid) {
       return;
     }
 
     // Default duration is 120s if not specified
-    const duration = activeSession.settings?.roundDuration || 120;
+    const durationStr = activeSession.settings?.roundDuration || '2m';
+    const durationMap: Record<string, number> = { '1m': 60, '2m': 120, '3m': 180, '5m': 300, '10m': 600, '30m': 1800 };
+    const duration = durationMap[durationStr as string] || 120;
+    
     if (duration > 3600) {
       // If round duration is very large, do not auto-advance.
       return;
@@ -869,13 +876,22 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const now = new Date().getTime();
       const elapsed = Math.floor((now - start) / 1000);
 
-      if (elapsed >= duration) {
+      // Determine required elapsed duration. Instructor/Admin advances at duration,
+      // student fallback client advances at duration + 5s grace period.
+      const isInstructorOrAdmin = isDirectPlay || isAdmin || user?.uid === activeSession.instructorId;
+      const targetDuration = isInstructorOrAdmin ? duration : (duration + 5);
+
+      // Only auto-advance in solo Direct Play mode, not in multiplayer
+      // Disabled here because the StudentDashboard handles its own local tick loop.
+      /*
+      if (isDirectPlay && elapsed >= targetDuration) {
         try {
           await advanceRound();
-        } catch (err) {
+        } catch (err: any) {
           console.error("Auto-advancement of round failed:", err);
         }
       }
+      */
     };
 
     checkAndAdvance();
@@ -1132,7 +1148,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const togglePauseSession = async (isPaused: boolean) => {
     if (!session) return;
-    if (!isAdmin) throw new Error('Unauthorized');
+    const isInstructor = user?.uid === session.instructorId;
+    if (!isAdmin && !isInstructor) throw new Error('Unauthorized');
     await updateDoc(doc(db, 'sessions', session.id), { 
       status: isPaused ? 'paused' : 'active',
       ...(isPaused ? {} : { roundStartedAt: new Date().toISOString() })
@@ -1179,8 +1196,17 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   };
 
+  const isAdvancingRef = useRef(false);
+
   const advanceRound = async () => {
-    if (isDirectPlay) {
+    if (isAdvancingRef.current) {
+      console.log("advanceRound is already running, skipping concurrent call.");
+      return;
+    }
+    isAdvancingRef.current = true;
+
+    try {
+      if (isDirectPlay) {
       // Resolve the solo round immediately
       const currentDecision = directTeam.currentDecision || {
         productionQty: { standard: 0, diet: 0, premium: 0 },
@@ -1237,14 +1263,21 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await runTransaction(db, async (transaction) => {
       const sessionRef = doc(db, 'sessions', sessionId);
       const sessionSnap = await transaction.get(sessionRef);
-      if (!sessionSnap.exists()) return;
+      if (!sessionSnap.exists()) {
+        console.warn("advanceRound abort: Session does not exist in DB!");
+        return;
+      }
       const currentSessionData = sessionSnap.data() as Session;
 
-      if (currentSessionData.status !== 'active') return;
+      if (currentSessionData.status !== 'active') {
+        console.warn("advanceRound abort: Session status in DB is not active! Status: " + currentSessionData.status);
+        return;
+      }
       
       const currentRound = currentSessionData.currentRound;
       // If round has already been advanced by another client, abort
       if (currentRound !== session.currentRound) {
+        console.log(`advanceRound abort: UI is on Day ${session.currentRound}, but Database is on Day ${currentRound}!`);
         return;
       }
 
@@ -1259,7 +1292,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const teamRef = doc(db, `sessions/${sessionId}/teams/${team.id}`);
         const teamSnap = await transaction.get(teamRef);
         if (teamSnap.exists()) {
-          teamsDataMap[team.id] = teamSnap.data() as Team;
+          teamsDataMap[team.id] = { id: teamSnap.id, ...teamSnap.data() } as Team;
         }
 
         const decRef = doc(db, `sessions/${sessionId}/teams/${team.id}/decisions`, `r${currentRound}`);
@@ -1302,6 +1335,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         roundStartedAt: new Date().toISOString()
       });
     });
+    } catch (err: any) {
+      console.error("advanceRound Error:", err);
+      throw err;
+    } finally {
+      isAdvancingRef.current = false;
+    }
   };
 
   const updateSettings = async (newSettings: Partial<GameSettings>) => {
@@ -1360,11 +1399,11 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       code: 'DIRECT',
       status: 'active',
       currentRound: 1,
-      totalRounds: directSession.totalRounds || 10,
+      totalRounds: 365,
       settings: {
-        roundDuration: 15,
+        roundDuration: 20,
         difficulty: 'medium',
-        totalRounds: directSession.totalRounds || 10,
+        totalRounds: 365,
         capacity: directParams.initialCapacity,
       },
       createdAt: new Date().toISOString(),
@@ -1442,7 +1481,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           stations.icing = { ...DEFAULT_STATIONS.icing };
         }
         const st = stations[stationId];
-        const actualPrice = DEFAULT_STATIONS[stationId].purchasePrice;
+        const actualPrice = st?.purchasePrice || DEFAULT_STATIONS[stationId].purchasePrice;
         if (t.balance < actualPrice) {
           alert(`Insufficient funds! Total Cash is too low. Machine costs ₹${actualPrice.toLocaleString()}.`);
           return t;
@@ -1471,7 +1510,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       stations.icing = { ...DEFAULT_STATIONS.icing };
     }
     const st = stations[stationId];
-    const actualPrice = DEFAULT_STATIONS[stationId].purchasePrice;
+    const actualPrice = st?.purchasePrice || DEFAULT_STATIONS[stationId].purchasePrice;
     if (currentTeam.balance < actualPrice) {
       alert(`Insufficient funds! Total Cash is too low. Machine costs ₹${actualPrice.toLocaleString()}.`);
       return;

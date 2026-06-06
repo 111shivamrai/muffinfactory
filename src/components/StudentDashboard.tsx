@@ -23,10 +23,12 @@ import {
   Pause
 } from 'lucide-react';
 
-import { RoundResult, Contract, DEFAULT_STATIONS } from '../types';
+import { RoundResult, Contract, DEFAULT_STATIONS, Delivery, INITIAL_VALUES, DEFAULT_PARAMETERS } from '../types';
 import { db } from '../firebase';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { AnimatedFactoryFloor } from "./AnimatedFactoryFloor";
+import { getInitialContracts, calculateDemand } from '../lib/gameLogic';
+import { SodaBottlingGame } from './SodaBottlingGame';
 
 // Helper animation components for counting up values smoothly
 function AnimatedNumber({ value, formatter }: { value: number; formatter?: (v: number) => string }) {
@@ -93,6 +95,37 @@ function AnimatedFloat({ value, decimals = 1, suffix = '' }: { value: number; de
   return <span>{displayValue.toFixed(decimals)}{suffix}</span>;
 }
 
+interface LocalGameState {
+  balance: number;
+  initialCash: number;
+  salesRevenue: number;
+  contractRevenue: number;
+  totalCostsPaid: number;
+  inventory: number;
+  flourStock: number;
+  sugarStock: number;
+  eggsStock: number;
+  cocoaStock: number;
+  deliveries: Delivery[];
+  contracts: Contract[];
+  stations: typeof DEFAULT_STATIONS;
+  flourOrderQty: number;
+  flourROP: number;
+  sugarOrderQty: number;
+  sugarROP: number;
+  eggsOrderQty: number;
+  eggsROP: number;
+  cocoaOrderQty: number;
+  cocoaROP: number;
+  tick: number;
+  lastDemand: number;
+  lastSold: number;
+  lastStockout: number;
+  lastRevenue: number;
+  satisfaction: number;
+  ropFiredThisTick: boolean;
+}
+
 export function StudentDashboard() {
   const {
     session,
@@ -109,7 +142,9 @@ export function StudentDashboard() {
     updateProcurementSettingsEx,
     theme,
     toggleTheme,
-    logout
+    logout,
+    updateTeamState,
+    updateSession
   } = useGame();
 
   const handleExit = async () => {
@@ -120,7 +155,10 @@ export function StudentDashboard() {
 
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [showContractsModal, setShowContractsModal] = useState(false);
+  const [showOvertimeModal, setShowOvertimeModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
+  const [countdown, setCountdown] = useState(20);
+  const lastWrittenStateRef = useRef<any>({});
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [dismissEndedModal, setDismissEndedModal] = useState(false);
 
@@ -131,13 +169,23 @@ export function StudentDashboard() {
     }
   }, [session?.status]);
 
+  // ─── LOCAL GAME LOOP STATE ───
+  const [gameState, setGameState] = useState<LocalGameState | null>(null);
+  const stateRef = useRef<LocalGameState | null>(null);
+  useEffect(() => {
+    stateRef.current = gameState;
+  }, [gameState]);
+  const [gameRunning, setGameRunning] = useState(false);
+  const intervalRef = useRef<any>(null);
+  const [cashFlash, setCashFlash] = useState<'gain' | 'loss' | null>(null);
+
   // Track previous balance to determine cash flow direction (incoming/outgoing)
   const prevBalanceRef = useRef<number | null>(null);
   const [balanceChange, setBalanceChange] = useState<'increase' | 'decrease' | 'none'>('none');
 
   useEffect(() => {
-    if (!currentTeam) return;
-    const curr = currentTeam.balance;
+    if (!gameState) return;
+    const curr = gameState.balance;
     if (prevBalanceRef.current !== null) {
       const prev = prevBalanceRef.current;
       if (curr > prev) {
@@ -149,7 +197,7 @@ export function StudentDashboard() {
       }
     }
     prevBalanceRef.current = curr;
-  }, [currentTeam?.balance]);
+  }, [gameState?.balance]);
 
   // Raw Material Local Inputs (committed on Apply)
   const [flourQ, setFlourQ] = useState(2000);
@@ -167,7 +215,7 @@ export function StudentDashboard() {
   const [icingRunning, setIcingRunning] = useState(1);
   const [packingRunning, setPackingRunning] = useState(1);
 
-  // Sync states when database updates
+  // Sync inputs from database updates
   useEffect(() => {
     if (currentTeam) {
       setFlourQ(currentTeam.flourOrderQty ?? 2000);
@@ -188,25 +236,465 @@ export function StudentDashboard() {
     }
   }, [currentTeam]);
 
-  // Countdown timer for auto-advance
-  const [countdown, setCountdown] = useState<number | null>(null);
+  // Initialize gameState from Firestore on mount
   useEffect(() => {
-    if (!session || session.status !== 'active') { setCountdown(null); return; }
-    const duration = session.settings?.roundDuration || 120;
-    if (duration > 3600) { setCountdown(null); return; }
-    if (!session.roundStartedAt) { setCountdown(duration); return; }
+    if (!currentTeam || gameState) return;
+    
+    const initialFlour = currentTeam.flourStock ?? Math.round(0.35 * (currentTeam.rawMaterials || 0));
+    const initialSugar = currentTeam.sugarStock ?? Math.round(0.25 * (currentTeam.rawMaterials || 0));
+    const initialEggs = currentTeam.eggsStock ?? Math.round(0.20 * (currentTeam.rawMaterials || 0));
+    const initialCocoa = currentTeam.cocoaStock ?? Math.round(0.20 * (currentTeam.rawMaterials || 0));
 
-    const tick = () => {
-      const start = new Date(session.roundStartedAt!).getTime();
-      const now = Date.now();
-      const elapsed = Math.floor((now - start) / 1000);
-      const remaining = Math.max(0, duration - elapsed);
-      setCountdown(remaining);
+    const initialState: LocalGameState = {
+      balance: currentTeam.balance ?? INITIAL_VALUES.BALANCE,
+      initialCash: currentTeam.initialCash ?? currentTeam.balance ?? INITIAL_VALUES.BALANCE,
+      salesRevenue: currentTeam.salesRevenue ?? 0,
+      contractRevenue: currentTeam.contractRevenue ?? 0,
+      totalCostsPaid: currentTeam.totalCostsPaid ?? 0,
+      inventory: currentTeam.inventory?.standard ?? 0,
+      flourStock: initialFlour,
+      sugarStock: initialSugar,
+      eggsStock: initialEggs,
+      cocoaStock: initialCocoa,
+      deliveries: currentTeam.deliveries ?? [],
+      contracts: currentTeam.contracts ?? getInitialContracts(),
+      stations: currentTeam.stations ?? JSON.parse(JSON.stringify(DEFAULT_STATIONS)),
+      flourOrderQty: currentTeam.flourOrderQty ?? 2000,
+      flourROP: currentTeam.flourROP ?? 500,
+      sugarOrderQty: currentTeam.sugarOrderQty ?? 1500,
+      sugarROP: currentTeam.sugarROP ?? 400,
+      eggsOrderQty: currentTeam.eggsOrderQty ?? 1200,
+      eggsROP: currentTeam.eggsROP ?? 300,
+      cocoaOrderQty: currentTeam.cocoaOrderQty ?? 800,
+      cocoaROP: currentTeam.cocoaROP ?? 200,
+      tick: currentTeam.tick ?? session?.currentRound ?? 1,
+      lastDemand: 0,
+      lastSold: 0,
+      lastStockout: 0,
+      lastRevenue: 0,
+      satisfaction: currentTeam.satisfaction ?? 100,
+      ropFiredThisTick: false
     };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [session?.status, session?.roundStartedAt, session?.settings?.roundDuration]);
+
+    setGameState(initialState);
+    lastWrittenStateRef.current = {
+      balance: initialState.balance,
+      flourStock: initialState.flourStock,
+      sugarStock: initialState.sugarStock,
+      eggsStock: initialState.eggsStock,
+      cocoaStock: initialState.cocoaStock,
+      satisfaction: initialState.satisfaction,
+    };
+  }, [currentTeam?.id]);
+
+  // Start/stop game loop based on session status
+  useEffect(() => {
+    if (session?.status === 'active' && gameState) {
+      setGameRunning(true);
+    } else {
+      setGameRunning(false);
+    }
+  }, [session?.status, !!gameState]);
+
+  // Sync remote changes (e.g. from instructor intervention or database initialization) back to local gameState
+  useEffect(() => {
+    if (!currentTeam || !gameState) return;
+    
+    const lastWritten = lastWrittenStateRef.current;
+    let needsUpdate = false;
+    const nextState = { ...gameState };
+    
+    if (lastWritten.balance === undefined || (currentTeam.balance !== lastWritten.balance && currentTeam.balance !== gameState.balance)) {
+      nextState.balance = currentTeam.balance;
+      nextState.initialCash = currentTeam.initialCash ?? currentTeam.balance;
+      needsUpdate = true;
+    }
+    if (lastWritten.flourStock === undefined || (currentTeam.flourStock !== lastWritten.flourStock && currentTeam.flourStock !== gameState.flourStock)) {
+      nextState.flourStock = currentTeam.flourStock ?? nextState.flourStock;
+      needsUpdate = true;
+    }
+    if (lastWritten.sugarStock === undefined || (currentTeam.sugarStock !== lastWritten.sugarStock && currentTeam.sugarStock !== gameState.sugarStock)) {
+      nextState.sugarStock = currentTeam.sugarStock ?? nextState.sugarStock;
+      needsUpdate = true;
+    }
+    if (lastWritten.eggsStock === undefined || (currentTeam.eggsStock !== lastWritten.eggsStock && currentTeam.eggsStock !== gameState.eggsStock)) {
+      nextState.eggsStock = currentTeam.eggsStock ?? nextState.eggsStock;
+      needsUpdate = true;
+    }
+    if (lastWritten.cocoaStock === undefined || (currentTeam.cocoaStock !== lastWritten.cocoaStock && currentTeam.cocoaStock !== gameState.cocoaStock)) {
+      nextState.cocoaStock = currentTeam.cocoaStock ?? nextState.cocoaStock;
+      needsUpdate = true;
+    }
+    if (lastWritten.satisfaction === undefined || (currentTeam.satisfaction !== lastWritten.satisfaction && currentTeam.satisfaction !== gameState.satisfaction)) {
+      nextState.satisfaction = currentTeam.satisfaction ?? nextState.satisfaction;
+      needsUpdate = true;
+    }
+    
+    // Check if inputs (OrderQty and ROP) were changed externally (e.g., intervention)
+    if (currentTeam.flourOrderQty !== undefined && currentTeam.flourOrderQty !== gameState.flourOrderQty) {
+      nextState.flourOrderQty = currentTeam.flourOrderQty;
+      needsUpdate = true;
+    }
+    if (currentTeam.flourROP !== undefined && currentTeam.flourROP !== gameState.flourROP) {
+      nextState.flourROP = currentTeam.flourROP;
+      needsUpdate = true;
+    }
+    if (currentTeam.sugarOrderQty !== undefined && currentTeam.sugarOrderQty !== gameState.sugarOrderQty) {
+      nextState.sugarOrderQty = currentTeam.sugarOrderQty;
+      needsUpdate = true;
+    }
+    if (currentTeam.sugarROP !== undefined && currentTeam.sugarROP !== gameState.sugarROP) {
+      nextState.sugarROP = currentTeam.sugarROP;
+      needsUpdate = true;
+    }
+    if (currentTeam.eggsOrderQty !== undefined && currentTeam.eggsOrderQty !== gameState.eggsOrderQty) {
+      nextState.eggsOrderQty = currentTeam.eggsOrderQty;
+      needsUpdate = true;
+    }
+    if (currentTeam.eggsROP !== undefined && currentTeam.eggsROP !== gameState.eggsROP) {
+      nextState.eggsROP = currentTeam.eggsROP;
+      needsUpdate = true;
+    }
+    if (currentTeam.cocoaOrderQty !== undefined && currentTeam.cocoaOrderQty !== gameState.cocoaOrderQty) {
+      nextState.cocoaOrderQty = currentTeam.cocoaOrderQty;
+      needsUpdate = true;
+    }
+    if (currentTeam.cocoaROP !== undefined && currentTeam.cocoaROP !== gameState.cocoaROP) {
+      nextState.cocoaROP = currentTeam.cocoaROP;
+      needsUpdate = true;
+    }
+
+    if (needsUpdate) {
+      setGameState(nextState);
+      lastWrittenStateRef.current = {
+        ...lastWritten,
+        balance: currentTeam.balance,
+        flourStock: currentTeam.flourStock,
+        sugarStock: currentTeam.sugarStock,
+        eggsStock: currentTeam.eggsStock,
+        cocoaStock: currentTeam.cocoaStock,
+        satisfaction: currentTeam.satisfaction,
+      };
+    }
+  }, [
+    currentTeam?.balance, 
+    currentTeam?.flourStock, 
+    currentTeam?.sugarStock, 
+    currentTeam?.eggsStock, 
+    currentTeam?.cocoaStock, 
+    currentTeam?.satisfaction,
+    currentTeam?.flourOrderQty,
+    currentTeam?.flourROP,
+    currentTeam?.sugarOrderQty,
+    currentTeam?.sugarROP,
+    currentTeam?.eggsOrderQty,
+    currentTeam?.eggsROP,
+    currentTeam?.cocoaOrderQty,
+    currentTeam?.cocoaROP
+  ]);
+
+  // Sync session active settings / db modifications back to gameState
+  useEffect(() => {
+    if (!currentTeam || !gameState) return;
+    setGameState(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        stations: currentTeam.stations ?? prev.stations,
+        contracts: currentTeam.contracts ?? prev.contracts,
+        deliveries: currentTeam.deliveries ?? prev.deliveries,
+      };
+    });
+  }, [currentTeam?.stations, currentTeam?.contracts, currentTeam?.deliveries]);
+
+  // ─── UNIFIED LOCAL GAME LOOP & COUNTDOWN TIMER (1 DAY = 20 SECONDS) ───
+  const runLocalTick = () => {
+    try {
+      const s = stateRef.current;
+      if (!s) return;
+
+      // Check end condition: 365 days
+      if (s.tick >= 365) {
+        setGameRunning(false);
+        setDismissEndedModal(false);
+        if (session?.id && currentTeam?.id) {
+          if (isDirectPlay) {
+            updateSession({ status: 'ended' });
+          } else {
+            updateDoc(doc(db, `sessions/${session.id}/teams/${currentTeam.id}`), {
+              status: 'ended'
+            }).catch(console.error);
+          }
+        }
+        return;
+      }
+
+      const params = session?.settings?.parameters ?? DEFAULT_PARAMETERS;
+      const LEAD_TIME = params.baseLeadTime ?? 1;
+      const RM_PRICE = params.rawMaterialUnitPrice ?? 8;
+      const STORAGE_COST = params.storageCost ?? 1;
+      const SELLING_PRICE = params.products?.[0]?.sellingPrice ?? 20;
+      const PRODUCTION_COST = params.products?.[0]?.productionCost ?? 2;
+      const BACKORDER_PENALTY = params.backorderPenalty ?? 2;
+
+      const event = session?.activeEvent;
+
+      // ── 1. Deliveries arrive ──
+      const arriving = s.deliveries.filter(d => d.roundArriving <= s.tick);
+      const stillPending = s.deliveries.filter(d => d.roundArriving > s.tick);
+
+      let flour = s.flourStock;
+      let sugar = s.sugarStock;
+      let eggs = s.eggsStock;
+      let cocoa = s.cocoaStock;
+
+      arriving.forEach(d => {
+        const item = d.item || 'flour';
+        if (item === 'flour') flour += d.quantity;
+        else if (item === 'sugar') sugar += d.quantity;
+        else if (item === 'eggs') eggs += d.quantity;
+        else if (item === 'cocoa') cocoa += d.quantity;
+      });
+
+      // ── 2. Production ──
+      let mixingCap = (s.stations.mixing?.active ?? 2) * (s.stations.mixing?.capacityPerMachine ?? 54);
+      let bottlingCap = (s.stations.bottling?.active ?? 3) * (s.stations.bottling?.capacityPerMachine ?? 24);
+      let icingCap = (s.stations.icing?.active ?? 1) * (s.stations.icing?.capacityPerMachine ?? 55);
+      let packagingCap = (s.stations.packaging?.active ?? 1) * (s.stations.packaging?.capacityPerMachine ?? 216);
+
+      if (event?.type === 'machine_breakdown') {
+        const penaltyRatio = event.severity === 'low' ? 0.8 : event.severity === 'medium' ? 0.6 : 0.4;
+        mixingCap = Math.round(mixingCap * penaltyRatio);
+        bottlingCap = Math.round(bottlingCap * penaltyRatio);
+        icingCap = Math.round(icingCap * penaltyRatio);
+        packagingCap = Math.round(packagingCap * penaltyRatio);
+      }
+
+      const bottleneck = Math.min(mixingCap, bottlingCap, icingCap, packagingCap);
+      const matLimit = Math.min(flour, sugar, cocoa);
+      const produced = Math.min(bottleneck, matLimit);
+
+      flour -= produced;
+      sugar -= produced;
+      cocoa -= produced;
+      const productionCostThisTick = produced * PRODUCTION_COST;
+
+      let inventory = s.inventory + produced;
+
+      // ── 3. ROP checks ──
+      let newDeliveries = [...stillPending];
+      let rawMaterialPrice = RM_PRICE;
+      if (event?.type === 'material_shortage') {
+        if (event.severity === 'low') rawMaterialPrice *= 1.5;
+        if (event.severity === 'medium') rawMaterialPrice *= 2.0;
+        if (event.severity === 'high') rawMaterialPrice *= 3.0;
+      }
+
+      let rawMatOrderCost = 0;
+      let ropFired = false;
+
+      const checkAndOrder = (
+        stock: number, rop: number, qty: number, item: Delivery['item']
+      ) => {
+        const inFlight = newDeliveries
+          .filter(d => d.item === item || (!d.item && item === 'flour'))
+          .reduce((sum, d) => sum + d.quantity, 0);
+        if (stock + inFlight <= rop && qty > 0) {
+          newDeliveries.push({ roundArriving: s.tick + LEAD_TIME, quantity: qty, item });
+          rawMatOrderCost += qty * rawMaterialPrice + 100;
+          ropFired = true;
+        }
+      };
+
+      checkAndOrder(flour, s.flourROP, s.flourOrderQty, 'flour');
+      checkAndOrder(sugar, s.sugarROP, s.sugarOrderQty, 'sugar');
+      checkAndOrder(eggs, s.eggsROP, s.eggsOrderQty, 'eggs');
+      checkAndOrder(cocoa, s.cocoaROP, s.cocoaOrderQty, 'cocoa');
+
+      // ── 4. Contracts ──
+      const updatedContracts = s.contracts.map(c => {
+        if (c.status === 'pending' && (s.tick + 1) >= c.appearsAtDay) {
+          return { ...c, status: 'offered' as const };
+        }
+        return c;
+      });
+
+      let contractRevenueThisTick = 0;
+      let totalContractDemanded = 0;
+      let totalContractDelivered = 0;
+
+      const activeContracts = updatedContracts.filter(
+        c => c.status === 'accepted' && s.tick >= c.beginsAtDay && s.tick <= c.endsAtDay
+      );
+      activeContracts.forEach(c => {
+        const demand = c.dailyDemand;
+        totalContractDemanded += demand;
+        const delivered = Math.min(inventory, demand);
+        inventory -= delivered;
+        contractRevenueThisTick += delivered * c.pricePerUnit;
+        totalContractDelivered += delivered;
+        c.deliveredCount += delivered;
+        c.demandedCount += demand;
+      });
+
+      // Contract Expiries & compliance penalties
+      let contractPenaltiesThisTick = 0;
+      const finalContracts = updatedContracts.map(c => {
+        if (c.status === 'accepted' && s.tick === c.endsAtDay) {
+          const fillRate = c.demandedCount > 0 ? (c.deliveredCount / c.demandedCount) : 0;
+          const targetRequired = c.fillRateRequired / 100;
+          if (fillRate < targetRequired) {
+            contractPenaltiesThisTick += c.fillRatePenalty;
+          }
+          return { ...c, status: 'finished' as const };
+        }
+        return c;
+      });
+
+      // ── 5. Retail demand ──
+      const calculatedDemands = calculateDemand(s.tick, 0, event);
+      const demand = calculatedDemands['standard'] || 100;
+      const sold = Math.min(inventory, demand);
+      const stockout = demand - sold;
+      inventory -= sold;
+
+      const salesRevenueThisTick = sold * SELLING_PRICE;
+      const backorderCost = stockout * BACKORDER_PENALTY;
+
+      // ── 6. Holding cost ──
+      const holdingCost = inventory * STORAGE_COST;
+
+      // ── 7. Machine fixed cost ──
+      const totalActiveMachines =
+        (s.stations.mixing?.active ?? 0) +
+        (s.stations.bottling?.active ?? 0) +
+        (s.stations.icing?.active ?? 0) +
+        (s.stations.packaging?.active ?? 0);
+      const machineCostThisTick = totalActiveMachines * 50;
+
+      // ── 8. Compute Total Cash ──
+      const totalCostsThisTick = productionCostThisTick + rawMatOrderCost + holdingCost + backorderCost + machineCostThisTick + contractPenaltiesThisTick;
+      const newSalesRevenue = s.salesRevenue + salesRevenueThisTick;
+      const newContractRevenue = s.contractRevenue + contractRevenueThisTick;
+      const newTotalCostsPaid = s.totalCostsPaid + totalCostsThisTick;
+      const totalCash = s.initialCash + newSalesRevenue + newContractRevenue - newTotalCostsPaid;
+
+      // Service Level Rating update
+      const totalDayDemanded = totalContractDemanded + demand;
+      const totalDayDelivered = totalContractDelivered + sold;
+      const serviceLevelIndex = totalDayDemanded > 0 ? (totalDayDelivered / totalDayDemanded) : 1;
+      const nextSatisfaction = Math.max(0, Math.min(100, Math.round((s.satisfaction * 0.9) + (serviceLevelIndex * 10))));
+
+
+
+      // ── 10. Set ALL state in ONE call ──
+      const newState: LocalGameState = {
+        ...s,
+        balance: totalCash,
+        salesRevenue: newSalesRevenue,
+        contractRevenue: newContractRevenue,
+        totalCostsPaid: newTotalCostsPaid,
+        inventory,
+        flourStock: flour,
+        sugarStock: sugar,
+        eggsStock: eggs,
+        cocoaStock: cocoa,
+        deliveries: newDeliveries,
+        contracts: finalContracts,
+        tick: s.tick + 1,
+        lastDemand: demand,
+        lastSold: sold,
+        lastStockout: stockout,
+        lastRevenue: salesRevenueThisTick + contractRevenueThisTick,
+        satisfaction: nextSatisfaction,
+        ropFiredThisTick: ropFired
+      };
+
+      setGameState(newState);
+
+      // ── 11. Flash animation ──
+      if (totalCash !== s.balance) {
+        setCashFlash(totalCash > s.balance ? 'gain' : 'loss');
+        setTimeout(() => setCashFlash(null), 600);
+      }
+
+      // ── 12. Write to Firestore / Context (non-blocking side effect) ──
+      if (session?.id && currentTeam?.id) {
+        lastWrittenStateRef.current = {
+          balance: totalCash,
+          flourStock: flour,
+          sugarStock: sugar,
+          eggsStock: eggs,
+          cocoaStock: cocoa,
+          satisfaction: nextSatisfaction,
+        };
+
+        if (isDirectPlay) {
+          updateTeamState(currentTeam.id, {
+            balance: totalCash,
+            inventory: { standard: inventory },
+            flourStock: flour,
+            sugarStock: sugar,
+            eggsStock: eggs,
+            cocoaStock: cocoa,
+            deliveries: newDeliveries,
+            contracts: finalContracts,
+            salesRevenue: newSalesRevenue,
+            contractRevenue: newContractRevenue,
+            totalCostsPaid: newTotalCostsPaid,
+            tick: s.tick + 1,
+            satisfaction: nextSatisfaction,
+          });
+          updateSession({
+            currentRound: s.tick + 1,
+            status: (s.tick + 1) > 365 ? 'ended' : 'active'
+          });
+        } else {
+          setDoc(
+            doc(db, `sessions/${session.id}/teams/${currentTeam.id}`),
+            {
+              balance: totalCash,
+              inventory: { standard: inventory },
+              flourStock: flour,
+              sugarStock: sugar,
+              eggsStock: eggs,
+              cocoaStock: cocoa,
+              deliveries: newDeliveries,
+              contracts: finalContracts,
+              salesRevenue: newSalesRevenue,
+              contractRevenue: newContractRevenue,
+              totalCostsPaid: newTotalCostsPaid,
+              tick: s.tick + 1,
+              satisfaction: nextSatisfaction,
+              lastUpdated: serverTimestamp()
+            },
+            { merge: true }
+          ).catch(console.error);
+        }
+      }
+
+    } catch (err) {
+      console.error('Tick error:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (!gameRunning) return;
+
+    setCountdown(20);
+
+    const timerId = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) {
+          runLocalTick();
+          return 20;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timerId);
+  }, [gameRunning, session?.id, currentTeam?.id]);
 
   // Audio Context synth beep player
   const playBeep = (freq = 440, type: OscillatorType = 'sine', duration = 0.1) => {
@@ -233,14 +721,43 @@ export function StudentDashboard() {
     setTimeout(() => setToastMsg(null), 2500);
   };
 
+  const handleOvertimeReward = (addedCash: number, addedRM: number) => {
+    setGameState(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        balance: prev.balance + addedCash,
+        flourStock: prev.flourStock + Math.round(0.35 * addedRM),
+        sugarStock: prev.sugarStock + Math.round(0.25 * addedRM),
+        eggsStock: prev.eggsStock + Math.round(0.20 * addedRM),
+        cocoaStock: prev.cocoaStock + Math.round(0.20 * addedRM),
+      };
+    });
+  };
+
   const handleApplyOrderChanges = async () => {
     playBeep(880, 'sine', 0.1);
+    setGameState(prev => prev ? {
+      ...prev,
+      flourOrderQty: flourQ,
+      flourROP: flourR,
+      sugarOrderQty: sugarQ,
+      sugarROP: sugarR,
+      eggsOrderQty: eggsQ,
+      eggsROP: eggsR,
+      cocoaOrderQty: cocoaQ,
+      cocoaROP: cocoaR
+    } : prev);
     try {
       await updateProcurementSettingsEx({
-        flourQ, flourR,
-        sugarQ, sugarR,
-        eggsQ, eggsR,
-        cocoaQ, cocoaR
+        flourQ: parseInt(String(flourQ), 10) || 0, 
+        flourR: parseInt(String(flourR), 10) || 0,
+        sugarQ: parseInt(String(sugarQ), 10) || 0, 
+        sugarR: parseInt(String(sugarR), 10) || 0,
+        eggsQ: parseInt(String(eggsQ), 10) || 0, 
+        eggsR: parseInt(String(eggsR), 10) || 0,
+        cocoaQ: parseInt(String(cocoaQ), 10) || 0, 
+        cocoaR: parseInt(String(cocoaR), 10) || 0
       });
       showToast("Order changes applied to pantry!");
     } catch (err) {
@@ -266,7 +783,8 @@ export function StudentDashboard() {
 
   const handleBuyMachineClick = async (stationId: 'mixing' | 'bottling' | 'icing' | 'packaging', name: string, price: number) => {
     if (!currentTeam) return;
-    if (currentTeam.balance < price) {
+    const currentBalance = gameState?.balance ?? currentTeam.balance;
+    if (currentBalance < price) {
       playBeep(220, 'sawtooth', 0.2);
       showToast(`Insufficient funds for ${name}! Costs ₹${price.toLocaleString()}.`);
       return;
@@ -355,29 +873,25 @@ export function StudentDashboard() {
   const icingOwned = stations.icing?.owned ?? 2;
   const packingOwned = stations.packaging.owned;
 
+  const mixingPrice = stations.mixing?.purchasePrice || DEFAULT_STATIONS.mixing.purchasePrice;
+  const bakingPrice = stations.bottling?.purchasePrice || DEFAULT_STATIONS.bottling.purchasePrice;
+  const icingPrice = stations.icing?.purchasePrice || DEFAULT_STATIONS.icing.purchasePrice;
+  const packingPrice = stations.packaging?.purchasePrice || DEFAULT_STATIONS.packaging.purchasePrice;
+
   const isAnyStationOffline = mixingRunning === 0 || bakingRunning === 0 || icingRunning === 0 || packingRunning === 0;
 
-  // Calculate live progress for Simulated Day Clock (e.g. 08:45 AM)
-  let simulatedTimeStr = "08:00 AM";
-  let elapsedProgress = 0.0;
-  if (session.roundStartedAt) {
-    const start = new Date(session.roundStartedAt).getTime();
-    const now = new Date().getTime();
-    const duration = session.settings?.roundDuration || 120;
-    const elapsed = Math.floor((now - start) / 1000);
-    elapsedProgress = Math.min(1.0, elapsed / duration);
-    
-    const startHour = 8;
-    const endHour = 18;
-    const totalHours = endHour - startHour;
-    const currentHourDecimal = startHour + elapsedProgress * totalHours;
-    
-    const h = Math.floor(currentHourDecimal);
-    const m = Math.floor((currentHourDecimal % 1) * 60);
-    const isPm = h >= 12;
-    const displayH = h > 12 ? h - 12 : h;
-    simulatedTimeStr = `${displayH.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')} ${isPm ? 'PM' : 'AM'}`;
-  }
+  // Calculate live progress for Simulated Day Clock (e.g. 08:45 AM) based on local 20s countdown
+  const elapsedProgress = Math.min(1.0, Math.max(0, (20 - countdown) / 20));
+  const startHour = 8;
+  const endHour = 18;
+  const totalHours = endHour - startHour;
+  const currentHourDecimal = startHour + elapsedProgress * totalHours;
+  
+  const h = Math.floor(currentHourDecimal);
+  const m = Math.floor((currentHourDecimal % 1) * 60);
+  const isPm = h >= 12;
+  const displayH = h > 12 ? h - 12 : h;
+  const simulatedTimeStr = `${displayH.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')} ${isPm ? 'PM' : 'AM'}`;
 
   // Calculate Rank among all teams
   const sortedTeams = [...allTeams].sort((a, b) => b.balance - a.balance);
@@ -395,7 +909,7 @@ export function StudentDashboard() {
   const retailMissed = lastResult ? (lastResult.missedDemand?.standard || 0) : 0;
   const totalRetailDemand = retailSold + retailMissed;
   
-  const fillRate = currentTeam.satisfaction ?? 100;
+  const fillRate = gameState?.satisfaction ?? currentTeam.satisfaction ?? 100;
   const revenueToday = lastResult ? lastResult.revenue : 0;
 
   return (
@@ -416,7 +930,7 @@ export function StudentDashboard() {
           </div>
         )}
 
-        {session.status === 'ended' && !dismissEndedModal && (
+        {(session.status === 'ended' || (gameState && gameState.tick >= 365)) && !dismissEndedModal && (
           <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[9999] flex flex-col items-center justify-center p-6 text-center text-white font-sans">
             <div className="max-w-md bg-white text-[#4a2c11] border-4 border-[#4a2c11] p-8 rounded-2xl shadow-2xl space-y-6 relative">
               <button 
@@ -435,11 +949,11 @@ export function StudentDashboard() {
                 </div>
                 <div className="flex justify-between border-b border-[#4a2c11]/10 pb-1.5">
                   <span>FINAL CORPORATE VALUE:</span>
-                  <span className="text-indigo-800">₹{currentTeam.balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span className="text-indigo-800">₹{(gameState?.balance ?? currentTeam.balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>FINAL SCORE RATING:</span>
-                  <span>{currentTeam.satisfaction}% Rating</span>
+                  <span>{gameState?.satisfaction ?? currentTeam.satisfaction}% Rating</span>
                 </div>
               </div>
               <p className="text-xs text-[#8c7662] uppercase tracking-wider leading-relaxed">
@@ -730,7 +1244,7 @@ export function StudentDashboard() {
             <span className="text-[11px] font-black tracking-wider">Back to Website</span>
           </button>
 
-          {session.status === 'ended' && (
+          {(session.status === 'ended' || (gameState && gameState.tick >= 365)) && (
             <button 
               onClick={() => { playBeep(440, 'sine', 0.05); setDismissEndedModal(false); }}
               className="header-btn"
@@ -745,7 +1259,7 @@ export function StudentDashboard() {
           <div className="header-pill">
             <span className="text-xl">📅</span>
             <div className="flex flex-col text-left leading-none">
-              <span className="text-[11px] font-extrabold text-[#4a2c11] uppercase">Day {session.currentRound.toString().padStart(2, '0')}</span>
+              <span className="text-[11px] font-extrabold text-[#4a2c11] uppercase">Day {Math.min(gameState?.tick ?? session.currentRound, 365).toString().padStart(2, '0')}</span>
               <span className="text-[9px] font-mono text-[#8c7662] mt-0.5">{simulatedTimeStr}</span>
             </div>
           </div>
@@ -755,7 +1269,16 @@ export function StudentDashboard() {
             <span className="text-xl">💵</span>
             <div className="flex flex-col text-left leading-none">
               <span className="text-[8px] font-bold text-[#8c7662] uppercase tracking-wider">Total Cash</span>
-              <span className="text-[12px] font-black text-[#4a2c11] mt-0.5">₹{currentTeam.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              <span className="text-[12px] font-black text-[#4a2c11] mt-0.5">₹{(gameState?.balance ?? currentTeam.balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
+          </div>
+
+          {/* Current Revenue Pill */}
+          <div className="header-pill">
+            <span className="text-xl">📈</span>
+            <div className="flex flex-col text-left leading-none">
+              <span className="text-[8px] font-bold text-[#8c7662] uppercase tracking-wider">Sales Revenue (Cumulative)</span>
+              <span className="text-[12px] font-black text-[#4db6ac] mt-0.5">₹{(gameState?.salesRevenue ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             </div>
           </div>
 
@@ -765,17 +1288,15 @@ export function StudentDashboard() {
             <div className="flex flex-col text-left leading-none">
               <span className="text-[8px] font-bold text-[#8c7662] uppercase tracking-wider">Next Day In</span>
               <div className="flex items-center gap-1.5 mt-0.5">
-                <span className={`text-[11px] font-extrabold ${countdown !== null && countdown <= 5 ? 'text-[#e53935]' : 'text-[#4db6ac]'}`}>
-                  {countdown !== null ? `${countdown}s` : '∞'}
+                <span className={`text-[11px] font-extrabold ${countdown <= 5 ? 'text-[#e53935]' : 'text-[#4db6ac]'}`}>
+                  {countdown}s
                 </span>
-                {countdown !== null && (
-                  <div className="w-12 h-2 bg-[#b2dfdb] border border-[#4a2c11] rounded-full overflow-hidden shrink-0">
-                    <div 
-                      className={`h-full transition-all duration-1000 ease-linear ${countdown <= 5 ? 'bg-[#e53935]' : 'bg-[#4db6ac]'}`}
-                      style={{ width: `${((session.settings?.roundDuration || 15) > 0 ? (countdown / (session.settings?.roundDuration || 15)) * 100 : 0)}%` }} 
-                    />
-                  </div>
-                )}
+                <div className="w-12 h-2 bg-[#b2dfdb] border border-[#4a2c11] rounded-full overflow-hidden shrink-0">
+                  <div 
+                    className={`h-full transition-all duration-1000 ease-linear ${countdown <= 5 ? 'bg-[#e53935]' : 'bg-[#4db6ac]'}`}
+                    style={{ width: `${(countdown / 20) * 100}%` }} 
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -787,6 +1308,16 @@ export function StudentDashboard() {
           >
             <span className="text-xl">📋</span>
             <span className="text-[11px] font-black tracking-wider text-[#4a2c11]">Contracts</span>
+          </button>
+
+          {/* Overtime Dash Trigger Button */}
+          <button 
+            onClick={() => { playBeep(440, 'sine', 0.05); setShowOvertimeModal(true); }}
+            className="header-btn"
+            style={{ backgroundColor: '#fdf2e9', borderColor: '#e65100', color: '#e65100' }}
+          >
+            <span className="text-xl">🎮</span>
+            <span className="text-[11px] font-black tracking-wider">Overtime Dash</span>
           </button>
 
           {/* Rank Pill */}
@@ -864,7 +1395,9 @@ export function StudentDashboard() {
                 <tbody className="divide-y divide-dashed divide-[#e6ccb2] text-[14px] font-extrabold">
                   {/* Flour */}
                   <tr>
-                    <td className="py-0.5 flex items-center gap-2 text-[14px] font-extrabold text-[#4a2c11]"><span>🥖</span> Flour</td>
+                    <td className="py-0.5 flex items-center gap-2 text-[14px] font-extrabold text-[#4a2c11]">
+                      <span>🥖</span> Flour (Stock: {Math.round(gameState?.flourStock ?? flourStock)})
+                    </td>
                     <td className="py-0.5">
                       <div className="qty-control justify-center">
                         <button onClick={() => setFlourQ(p => Math.max(100, p - 100))} className="qty-control-btn">-</button>
@@ -877,7 +1410,7 @@ export function StudentDashboard() {
                         <input 
                           type="number" 
                           value={flourR}
-                          onChange={(e) => setFlourR(Math.max(0, parseInt(e.target.value) || 0))}
+                          onChange={(e) => setFlourR(Math.max(0, parseInt(e.target.value, 10) || 0))}
                           className="input-rop-large"
                         />
                         <button onClick={() => setFlourR(0)} className="text-[#c62828] text-xs font-black hover:scale-125 transition-transform" title="Clear">✕</button>
@@ -888,7 +1421,9 @@ export function StudentDashboard() {
                   
                   {/* Sugar */}
                   <tr>
-                    <td className="py-0.5 flex items-center gap-2 text-[14px] font-extrabold text-[#4a2c11]"><span>🥣</span> Sugar</td>
+                    <td className="py-0.5 flex items-center gap-2 text-[14px] font-extrabold text-[#4a2c11]">
+                      <span>🥣</span> Sugar (Stock: {Math.round(gameState?.sugarStock ?? sugarStock)})
+                    </td>
                     <td className="py-0.5">
                       <div className="qty-control justify-center">
                         <button onClick={() => setSugarQ(p => Math.max(100, p - 100))} className="qty-control-btn">-</button>
@@ -901,7 +1436,7 @@ export function StudentDashboard() {
                         <input 
                           type="number" 
                           value={sugarR}
-                          onChange={(e) => setSugarR(Math.max(0, parseInt(e.target.value) || 0))}
+                          onChange={(e) => setSugarR(Math.max(0, parseInt(e.target.value, 10) || 0))}
                           className="input-rop-large"
                         />
                         <button onClick={() => setSugarR(0)} className="text-[#c62828] text-xs font-black hover:scale-125 transition-transform" title="Clear">✕</button>
@@ -910,10 +1445,11 @@ export function StudentDashboard() {
                     <td className="py-0.5 text-right lead-lbl-large font-mono">1.0 Days</td>
                   </tr>
 
-
                   {/* Cocoa */}
                   <tr>
-                    <td className="py-0.5 flex items-center gap-2 text-[14px] font-extrabold text-[#4a2c11]"><span>🫙</span> Cocoa</td>
+                    <td className="py-0.5 flex items-center gap-2 text-[14px] font-extrabold text-[#4a2c11]">
+                      <span>🫙</span> Cocoa (Stock: {Math.round(gameState?.cocoaStock ?? cocoaStock)})
+                    </td>
                     <td className="py-0.5">
                       <div className="qty-control justify-center">
                         <button onClick={() => setCocoaQ(p => Math.max(50, p - 50))} className="qty-control-btn">-</button>
@@ -926,7 +1462,7 @@ export function StudentDashboard() {
                         <input 
                           type="number" 
                           value={cocoaR}
-                          onChange={(e) => setCocoaR(Math.max(0, parseInt(e.target.value) || 0))}
+                          onChange={(e) => setCocoaR(Math.max(0, parseInt(e.target.value, 10) || 0))}
                           className="input-rop-large"
                         />
                         <button onClick={() => setCocoaR(0)} className="text-[#c62828] text-xs font-black hover:scale-125 transition-transform" title="Clear">✕</button>
@@ -938,11 +1474,45 @@ export function StudentDashboard() {
               </table>
 
               <button 
-                onClick={handleApplyOrderChanges}
-                className="muffin-btn bg-[#89b873] border-[#4a2c11] hover:bg-[#78a562] active:translate-y-1 block w-full text-center py-1.5 mt-1.5"
+                onClick={async () => {
+                  const btn = document.getElementById('apply-order-btn');
+                  if (btn) btn.innerHTML = "Saving...";
+                  await handleApplyOrderChanges();
+                  if (btn) {
+                    btn.innerHTML = "Saved! ✔";
+                    btn.style.backgroundColor = "#78a562";
+                    setTimeout(() => {
+                      btn.innerHTML = "Apply Order Changes";
+                      btn.style.backgroundColor = "";
+                    }, 2000);
+                  }
+                }}
+                id="apply-order-btn"
+                className="muffin-btn bg-[#89b873] border-[#4a2c11] hover:bg-[#78a562] active:translate-y-1 block w-full text-center py-1.5 mt-1.5 transition-colors"
               >
                 Apply Order Changes
               </button>
+
+              {/* Pending Shipments */}
+              <div className="mt-2 pt-2 border-t border-[#4a2c11]/15">
+                <span className="text-[10px] uppercase font-black tracking-wider text-[#8c7662] block mb-1">📦 Pending Shipments</span>
+                {((gameState?.deliveries ?? currentTeam.deliveries ?? []).length === 0) ? (
+                  <div className="text-[10px] italic text-[#8c7662] text-center py-1">No orders in transit.</div>
+                ) : (
+                  <div className="flex flex-wrap gap-1">
+                    {(gameState?.deliveries ?? currentTeam.deliveries ?? []).map((d, idx) => {
+                      const ticksRemaining = Math.max(0, d.roundArriving - (gameState?.tick ?? 1));
+                      return (
+                        <div key={idx} className="text-[9px] bg-[#f1ebd9] border border-[#4a2c11] rounded px-1.5 py-0.5 font-mono text-[#4a2c11] flex items-center gap-1 font-bold">
+                          <span className="capitalize">{d.item || 'flour'}:</span>
+                          <span>{d.quantity}</span>
+                          <span className="text-indigo-600">({ticksRemaining}d)</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -975,7 +1545,7 @@ export function StudentDashboard() {
                         <button 
                           onClick={() => {
                             if (mixingRunning >= mixingOwned) {
-                              handleBuyMachineClick('mixing', 'Mixer', DEFAULT_STATIONS.mixing.purchasePrice);
+                              handleBuyMachineClick('mixing', 'Mixer', mixingPrice);
                             } else {
                               setMixingRunning(p => p + 1);
                             }
@@ -1015,7 +1585,7 @@ export function StudentDashboard() {
                         <button 
                           onClick={() => {
                             if (bakingRunning >= bakingOwned) {
-                              handleBuyMachineClick('bottling', 'Baker', DEFAULT_STATIONS.bottling.purchasePrice);
+                              handleBuyMachineClick('bottling', 'Baker', bakingPrice);
                             } else {
                               setBakingRunning(p => p + 1);
                             }
@@ -1055,7 +1625,7 @@ export function StudentDashboard() {
                         <button 
                           onClick={() => {
                             if (icingRunning >= icingOwned) {
-                              handleBuyMachineClick('icing', 'Icer', DEFAULT_STATIONS.icing.purchasePrice);
+                              handleBuyMachineClick('icing', 'Icer', icingPrice);
                             } else {
                               setIcingRunning(p => p + 1);
                             }
@@ -1095,7 +1665,7 @@ export function StudentDashboard() {
                         <button 
                           onClick={() => {
                             if (packingRunning >= packingOwned) {
-                              handleBuyMachineClick('packaging', 'Packager', DEFAULT_STATIONS.packaging.purchasePrice);
+                              handleBuyMachineClick('packaging', 'Packager', packingPrice);
                             } else {
                               setPackingRunning(p => p + 1);
                             }
@@ -1141,7 +1711,7 @@ export function StudentDashboard() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1, minHeight: 0 }}>
           
           {/* Factory Floor Card */}
-          <div style={{ display: 'flex', flexDirection: 'column', marginBottom: 0, flex: 1, minHeight: 0 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', marginBottom: 0, flex: 1.8, minHeight: 0 }}>
             {/* The header is now baked into the factory_floor_v2.jpg image inside AnimatedFactoryFloor */}
 
             <div style={{ padding: '0px', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
@@ -1192,14 +1762,18 @@ export function StudentDashboard() {
                 {/* Demand Card */}
                 <motion.div 
                   className="revenue-card" 
-                  style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '8.5px 10px', backgroundColor: '#ffffff', border: '2.5px solid #4a2c11', borderRadius: '10px', boxShadow: '0 3px 0 #4a2c11', minHeight: '140px', cursor: 'default' }}
+                  style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '12px 14px', backgroundColor: '#ffffff', border: '3.5px solid #4a2c11', borderRadius: '12px', boxShadow: '0 4px 0 #4a2c11', minHeight: '170px', cursor: 'default' }}
                   whileHover={{ y: -4, scale: 1.02, boxShadow: '0 6px 0 #4a2c11' }}
                   transition={{ type: "spring", stiffness: 300, damping: 15 }}
                 >
                   <div>
-                    <span className="revenue-card-title" style={{ fontSize: '9px', color: '#8c7662', textTransform: 'uppercase', fontWeight: 800, display: 'block' }}>Current Demand</span>
-                    <span className="revenue-card-val" style={{ fontSize: '16px', fontWeight: 900, color: '#4a2c11', display: 'block', marginTop: '2px' }}>
-                      {lastResult ? (
+                    <span className="revenue-card-title" style={{ fontSize: '11px', color: '#8c7662', textTransform: 'uppercase', fontWeight: 800, display: 'block', tracking: '0.05em' }}>Current Demand</span>
+                    <span className="revenue-card-val" style={{ fontSize: '22px', fontWeight: 900, color: '#4a2c11', display: 'block', marginTop: '2px' }}>
+                      {gameState ? (
+                        <>
+                          <AnimatedNumber value={gameState.lastSold} /> / <AnimatedNumber value={gameState.lastDemand} />
+                        </>
+                      ) : lastResult ? (
                         <>
                           <AnimatedNumber value={retailSold ?? 0} /> / <AnimatedNumber value={totalRetailDemand ?? 0} />
                         </>
@@ -1207,15 +1781,33 @@ export function StudentDashboard() {
                         '1,090 / 1,200'
                       )}
                     </span>
-                    <span style={{ fontSize: '9px', fontWeight: 'bold', color: '#8c7662', display: 'block' }}>Muffins</span>
+                    <span style={{ fontSize: '10px', fontWeight: 'bold', color: '#8c7662', display: 'block', marginTop: '1px' }}>Muffins Sold</span>
+
+                    {/* Finished Goods Inventory Progress Bar */}
+                    <div className="mt-2 pt-1 border-t border-[#4a2c11]/10">
+                      <span className="revenue-card-title" style={{ fontSize: '9px', color: '#8c7662', textTransform: 'uppercase', fontWeight: 800, display: 'block' }}>Finished Goods Stock</span>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[12px] font-black text-[#4a2c11]">
+                          <AnimatedNumber value={gameState ? gameState.inventory : (currentTeam.inventory?.standard ?? 0)} />
+                        </span>
+                        <div className="w-20 h-2 bg-[#f1ebd9] border border-[#4a2c11] rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-[#ffa726] transition-all duration-300"
+                            style={{ 
+                              width: `${Math.min(100, (((gameState ? gameState.inventory : (currentTeam.inventory?.standard ?? 0)) / 1000) * 100))}%` 
+                            }} 
+                          />
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <div style={{ marginTop: '4px' }}>
-                    <svg viewBox="0 0 160 50" width="100%" height="45" key={`chart-${retailSold}`}>
+                  <div style={{ marginTop: '6px' }}>
+                    <svg viewBox="0 0 160 50" width="100%" height="60" key={`chart-${retailSold}`}>
                       <motion.path
                         d="M 10 40 L 30 35 L 50 38 L 70 28 L 90 32 L 110 18 L 130 22 L 150 10"
                         fill="none"
                         stroke="#ffa726"
-                        strokeWidth="3"
+                        strokeWidth="3.5"
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         initial={{ pathLength: 0 }}
@@ -1236,7 +1828,7 @@ export function StudentDashboard() {
                           key={i}
                           cx={pt.cx}
                           cy={pt.cy}
-                          r="4"
+                          r="4.5"
                           fill="#ffffff"
                           stroke="#ffa726"
                           strokeWidth="2.5"
@@ -1252,22 +1844,18 @@ export function StudentDashboard() {
                 {/* Fill Rate Card */}
                 <motion.div 
                   className="revenue-card" 
-                  style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '8.5px 10px', backgroundColor: '#ffffff', border: '2.5px solid #4a2c11', borderRadius: '10px', boxShadow: '0 3px 0 #4a2c11', minHeight: '140px', cursor: 'default' }}
+                  style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '12px 14px', backgroundColor: '#ffffff', border: '3.5px solid #4a2c11', borderRadius: '12px', boxShadow: '0 4px 0 #4a2c11', minHeight: '170px', cursor: 'default' }}
                   whileHover={{ y: -4, scale: 1.02, boxShadow: '0 6px 0 #4a2c11' }}
                   transition={{ type: "spring", stiffness: 300, damping: 15 }}
                 >
                   <div>
-                    <span className="revenue-card-title" style={{ fontSize: '9px', color: '#8c7662', textTransform: 'uppercase', fontWeight: 800, display: 'block' }}>Fill Rate</span>
-                    <span className="revenue-card-val" style={{ fontSize: '16px', fontWeight: 900, color: '#4a2c11', display: 'block', marginTop: '2px' }}>
-                      {lastResult ? (
-                        <AnimatedFloat value={fillRate ?? 0} decimals={1} suffix="%" />
-                      ) : (
-                        '91.2%'
-                      )}
+                    <span className="revenue-card-title" style={{ fontSize: '11px', color: '#8c7662', textTransform: 'uppercase', fontWeight: 800, display: 'block', tracking: '0.05em' }}>Fill Rate</span>
+                    <span className="revenue-card-val" style={{ fontSize: '22px', fontWeight: 900, color: '#4a2c11', display: 'block', marginTop: '2px' }}>
+                      <AnimatedFloat value={gameState ? gameState.satisfaction : fillRate} decimals={1} suffix="%" />
                     </span>
                   </div>
-                  <div style={{ marginTop: '4px' }} className="flex justify-center">
-                    <svg width="45" height="45" viewBox="0 0 36 36" key={`fill-${fillRate}`}>
+                  <div style={{ marginTop: '6px' }} className="flex justify-center">
+                    <svg width="65" height="65" viewBox="0 0 36 36" key={`fill-${gameState ? gameState.satisfaction : fillRate}`}>
                       <circle cx="18" cy="18" r="15.915" fill="none" stroke="#efebe9" strokeWidth="4" />
                       <motion.circle
                         cx="18"
@@ -1280,7 +1868,7 @@ export function StudentDashboard() {
                         strokeLinecap="round"
                         initial={{ strokeDasharray: "0 100" }}
                         animate={{ 
-                          strokeDasharray: `${lastResult ? fillRate : 91.2} ${100 - (lastResult ? fillRate : 91.2)}` 
+                          strokeDasharray: `${gameState ? gameState.satisfaction : (lastResult ? fillRate : 91.2)} ${100 - (gameState ? gameState.satisfaction : (lastResult ? fillRate : 91.2))}` 
                         }}
                         transition={{ duration: 1.2, ease: "easeOut" }}
                       />
@@ -1291,22 +1879,24 @@ export function StudentDashboard() {
                 {/* Daily Revenue Card */}
                 <motion.div 
                   className="revenue-card" 
-                  style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '8.5px 10px', backgroundColor: '#ffffff', border: '2.5px solid #4a2c11', borderRadius: '10px', boxShadow: '0 3px 0 #4a2c11', minHeight: '140px', cursor: 'default' }}
+                  style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '12px 14px', backgroundColor: '#ffffff', border: '3.5px solid #4a2c11', borderRadius: '12px', boxShadow: '0 4px 0 #4a2c11', minHeight: '170px', cursor: 'default' }}
                   whileHover={{ y: -4, scale: 1.02, boxShadow: '0 6px 0 #4a2c11' }}
                   transition={{ type: "spring", stiffness: 300, damping: 15 }}
                 >
                   <div>
-                    <span className="revenue-card-title" style={{ fontSize: '9px', color: '#8c7662', textTransform: 'uppercase', fontWeight: 800, display: 'block' }}>Revenue (Today)</span>
-                    <span className="revenue-card-val" style={{ fontSize: '16px', fontWeight: 900, color: '#4a2c11', display: 'block', marginTop: '2px' }}>
-                      ₹{lastResult ? (
+                    <span className="revenue-card-title" style={{ fontSize: '11px', color: '#8c7662', textTransform: 'uppercase', fontWeight: 800, display: 'block', tracking: '0.05em' }}>Revenue (Today)</span>
+                    <span className="revenue-card-val" style={{ fontSize: '22px', fontWeight: 900, color: '#4a2c11', display: 'block', marginTop: '2px' }}>
+                      ₹{gameState ? (
+                        <AnimatedNumber value={gameState.lastRevenue} />
+                      ) : lastResult ? (
                         <AnimatedNumber value={revenueToday ?? 0} />
                       ) : (
                         '1,24,850'
                       )}
                     </span>
                   </div>
-                  <div style={{ marginTop: '4px' }} className="flex justify-center">
-                    <svg width="70" height="45" viewBox="0 0 70 45" key={`coins-${revenueToday}`}>
+                  <div style={{ marginTop: '6px' }} className="flex justify-center">
+                    <svg width="90" height="60" viewBox="0 0 70 45" key={`coins-${gameState ? gameState.lastRevenue : revenueToday}`}>
                       <motion.g 
                         transform="translate(15, 32)"
                         initial={{ y: 15, opacity: 0, scaleY: 0 }}
@@ -1362,18 +1952,22 @@ export function StudentDashboard() {
                 {/* Total Cash Card */}
                 <motion.div 
                   className="revenue-card" 
-                  style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '8.5px 10px', backgroundColor: '#ffffff', border: '2.5px solid #4a2c11', borderRadius: '10px', boxShadow: '0 3px 0 #4a2c11', minHeight: '140px', cursor: 'default' }}
+                  style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '12px 14px', backgroundColor: '#ffffff', border: '3.5px solid #4a2c11', borderRadius: '12px', boxShadow: '0 4px 0 #4a2c11', minHeight: '170px', cursor: 'default' }}
                   whileHover={{ y: -4, scale: 1.02, boxShadow: '0 6px 0 #4a2c11' }}
                   transition={{ type: "spring", stiffness: 300, damping: 15 }}
                 >
                   <div>
-                    <span className="revenue-card-title" style={{ fontSize: '9px', color: '#8c7662', textTransform: 'uppercase', fontWeight: 800, display: 'block' }}>Total Cash</span>
-                    <span className="revenue-card-val" style={{ fontSize: '13px', fontWeight: 900, color: '#4a2c11', display: 'block', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      ₹<AnimatedNumber value={currentTeam.balance ?? 0} />
+                    <span className="revenue-card-title" style={{ fontSize: '11px', color: '#8c7662', textTransform: 'uppercase', fontWeight: 800, display: 'block', tracking: '0.05em' }}>Total Cash</span>
+                    <span className={`revenue-card-val transition-colors duration-500 ${
+                      cashFlash === 'gain' ? 'text-emerald-600' :
+                      cashFlash === 'loss' ? 'text-red-500' :
+                      'text-[#4a2c11]'
+                    }`} style={{ fontSize: '20px', fontWeight: 900, display: 'block', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      ₹<AnimatedNumber value={gameState?.balance ?? currentTeam.balance ?? 0} />
                     </span>
                   </div>
-                  <div style={{ marginTop: '4px' }} className="flex justify-center">
-                    <svg width="70" height="45" viewBox="0 0 70 45" key={`piggy-${currentTeam.balance}`}>
+                  <div style={{ marginTop: '6px' }} className="flex justify-center">
+                    <svg width="90" height="60" viewBox="0 0 70 45" key={`piggy-${gameState?.balance ?? currentTeam.balance}`}>
                       {/* Green Cash Note dropping into slot (Increase or default) */}
                       {(balanceChange === 'increase' || balanceChange === 'none') && (
                         <motion.g
@@ -1454,33 +2048,52 @@ export function StudentDashboard() {
                 <motion.button 
                   onClick={() => { playBeep(880, 'sine', 0.1); showToast("Opening corporate spreadsheet report..."); downloadCSV(results, currentTeam.name); }}
                   style={{
-                    border: '3px solid #4a2c11',
-                    borderRadius: '10px',
-                    fontWeight: 900,
-                    fontSize: '9.5px',
+                    border: '3.5px solid #4a2c11',
+                    borderRadius: '12px',
+                    fontWeight: 950,
+                    fontSize: '12px',
                     textTransform: 'uppercase',
                     color: '#4a2c11',
                     backgroundColor: '#ffd54f',
-                    boxShadow: '0 3px 0 #4a2c11',
+                    boxShadow: '0 4px 0 #4a2c11',
                     cursor: 'pointer',
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    padding: '8px',
-                    gap: '4px',
+                    padding: '16px 12px',
+                    gap: '6px',
                   }}
                   whileHover={{ scale: 1.05, y: -4, boxShadow: '0 6px 0 #4a2c11', backgroundColor: '#ffe082' }}
                   whileTap={{ scale: 0.98, y: 1, boxShadow: '0 1px 0 #4a2c11' }}
                 >
-                  <span style={{ fontSize: '18px' }}>📊</span>
-                  <span style={{ fontSize: '9px', fontWeight: 'bold', textTransform: 'uppercase', textAlign: 'center', lineHeight: '1.2' }}>View Revenue Report</span>
+                  <span style={{ fontSize: '24px' }}>📊</span>
+                  <span style={{ fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase', textAlign: 'center', lineHeight: '1.2' }}>View Revenue Report</span>
                 </motion.button>
               </div>
+
             </div>
           </div>
         </div>
-    </main>
+      </main>
+      {/* ─── Overtime Baking Dash Mini-Game Modal ─── */}
+      <AnimatePresence>
+        {showOvertimeModal && (
+          <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center z-[150] p-4">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-[#0c0c1a] border-4 border-[#4a2c11] max-w-4xl w-full p-2 shadow-2xl relative rounded-2xl"
+            >
+              <SodaBottlingGame 
+                onReward={handleOvertimeReward}
+                onClose={() => setShowOvertimeModal(false)}
+              />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* ─── Offered & Active Contracts Modal ─── */}
       <AnimatePresence>

@@ -96,21 +96,24 @@ export function processDecision(
   const deliveries: Delivery[] = team.deliveries || [];
   const contracts: Contract[] = team.contracts || getInitialContracts();
   
+  // Helper to safely parse numbers
+  const safeNum = (val: any, fallback: number) => (typeof val === 'number' && !isNaN(val)) ? val : fallback;
+
   // Initialize 4 ingredients stocks if missing
-  let flour = team.flourStock !== undefined ? team.flourStock : Math.round(0.35 * team.rawMaterials);
-  let sugar = team.sugarStock !== undefined ? team.sugarStock : Math.round(0.25 * team.rawMaterials);
-  let eggs = team.eggsStock !== undefined ? team.eggsStock : Math.round(0.20 * team.rawMaterials);
-  let cocoa = team.cocoaStock !== undefined ? team.cocoaStock : Math.round(0.20 * team.rawMaterials);
+  let flour = safeNum(team.flourStock, Math.round(0.35 * team.rawMaterials));
+  let sugar = safeNum(team.sugarStock, Math.round(0.25 * team.rawMaterials));
+  let eggs = safeNum(team.eggsStock, Math.round(0.20 * team.rawMaterials));
+  let cocoa = safeNum(team.cocoaStock, Math.round(0.20 * team.rawMaterials));
 
   // Initialize reorder policies (Q, R)
-  const flourQ = team.flourOrderQty !== undefined ? team.flourOrderQty : 2000;
-  const flourR = team.flourROP !== undefined ? team.flourROP : 500;
-  const sugarQ = team.sugarOrderQty !== undefined ? team.sugarOrderQty : 1500;
-  const sugarR = team.sugarROP !== undefined ? team.sugarROP : 400;
-  const eggsQ = team.eggsOrderQty !== undefined ? team.eggsOrderQty : 1200;
-  const eggsR = team.eggsROP !== undefined ? team.eggsROP : 300;
-  const cocoaQ = team.cocoaOrderQty !== undefined ? team.cocoaOrderQty : 800;
-  const cocoaR = team.cocoaROP !== undefined ? team.cocoaROP : 200;
+  const flourQ = safeNum(team.flourOrderQty, 2000);
+  const flourR = safeNum(team.flourROP, 500);
+  const sugarQ = safeNum(team.sugarOrderQty, 1500);
+  const sugarR = safeNum(team.sugarROP, 400);
+  const eggsQ = safeNum(team.eggsOrderQty, 1200);
+  const eggsR = safeNum(team.eggsROP, 300);
+  const cocoaQ = safeNum(team.cocoaOrderQty, 800);
+  const cocoaR = safeNum(team.cocoaROP, 200);
 
   let rawMaterialPrice = parameters.rawMaterialUnitPrice;
   if (event?.type === 'material_shortage') {

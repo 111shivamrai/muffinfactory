@@ -1,8 +1,72 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    
+    // 1. Master Gate Pattern
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 64 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Helper for Session Access
+    function getSession(sessionId) {
+      return get(/databases/$(database)/documents/sessions/$(sessionId)).data;
+    }
+
+    function isInstructor(sessionId) {
+      return isSignedIn() && getSession(sessionId).instructorId == request.auth.uid;
+    }
+
+    // Default Deny
     match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Sessions (Keeping your strict rules here!)
+    match /sessions/{sessionId} {
+      allow read: if true;
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() || isInstructor(sessionId);
+      allow delete: if false;
+    }
+
+    // Teams - Unlocked for Mock Login
+    match /sessions/{sessionId}/teams/{teamId} {
       allow read, write: if true;
+    }
+
+    // Decisions - Unlocked for Mock Login
+    match /sessions/{sessionId}/teams/{teamId}/decisions/{roundId} {
+      allow read, write: if true;
+    }
+
+    // Results - Unlocked for Mock Login
+    match /sessions/{sessionId}/teams/{teamId}/results/{roundId} {
+      allow read, write: if true;
+    }
+
+    // Commercial Licenses - Unlocked for Mock Login
+    match /licenses/{licenseId} {
+      allow read, write: if true;
+    }
+
+    // SaaS System Logging
+    match /system_logs/{logId} {
+      allow create: if true;
+      allow read, update, delete: if isSignedIn();
+    }
+
+    // System Notifications
+    match /system_notifications/{id} {
+      allow read: if true;
+      allow write: if isSignedIn();
     }
   }
 }
