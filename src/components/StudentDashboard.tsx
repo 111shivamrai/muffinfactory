@@ -985,7 +985,7 @@ export function StudentDashboard() {
         .qty-control {
           display: flex;
           align-items: center;
-          gap: 8px;
+          gap: 5px;
         }
         .header-pill {
           min-height: 44px;
@@ -1039,29 +1039,29 @@ export function StudentDashboard() {
           box-shadow: 0 1px 0 #4a2c11;
         }
         .qty-control-btn {
-          width: 30px;
-          height: 30px;
+          width: 21px;
+          height: 21px;
           background-color: #ffffff;
           border: 2px solid #4a2c11;
-          border-radius: 6px;
+          border-radius: 5px;
           display: flex;
           align-items: center;
           justify-content: center;
           font-weight: 900;
           cursor: pointer;
-          box-shadow: 0 2px 0 #4a2c11;
-          font-size: 16px;
+          box-shadow: 0 1.2px 0 #4a2c11;
+          font-size: 11px;
           user-select: none;
           transition: transform 0.08s, box-shadow 0.08s;
         }
         .qty-control-btn:active {
-          transform: translateY(1.5px);
-          box-shadow: 0 0.5px 0 #4a2c11;
+          transform: translateY(1.2px);
+          box-shadow: 0 0.4px 0 #4a2c11;
         }
         .qty-lbl-large {
           font-family: 'JetBrains Mono', monospace;
-          font-size: 14px;
-          min-width: 50px;
+          font-size: 11px;
+          min-width: 32px;
           text-align: center;
           font-weight: 900;
           color: #4a2c11;
@@ -1070,11 +1070,11 @@ export function StudentDashboard() {
           font-family: 'JetBrains Mono', monospace;
           font-weight: 900;
           border: 2px solid #4a2c11;
-          border-radius: 6px;
-          width: 70px;
-          height: 30px;
+          border-radius: 5px;
+          width: 46px;
+          height: 21px;
           text-align: center;
-          font-size: 13px;
+          font-size: 10px;
           outline: none;
           color: #4a2c11;
           background-color: #ffffff;
@@ -1086,7 +1086,7 @@ export function StudentDashboard() {
           margin: 0;
         }
         .lead-lbl-large {
-          font-size: 13px;
+          font-size: 11px;
           font-weight: 800;
           color: #8c7662;
         }
@@ -1180,20 +1180,20 @@ export function StudentDashboard() {
         .muffin-badge-on {
           background-color: #89b873;
           color: white;
-          padding: 4px 10px;
-          border-radius: 8px;
-          font-size: 12px;
+          padding: 2px 6px;
+          border-radius: 5px;
+          font-size: 10px;
           font-weight: 900;
-          border: 2.5px solid #4a2c11;
+          border: 2px solid #4a2c11;
         }
         .muffin-badge-off {
           background-color: #e07a5f;
           color: white;
-          padding: 4px 10px;
-          border-radius: 8px;
-          font-size: 12px;
+          padding: 2px 6px;
+          border-radius: 5px;
+          font-size: 10px;
           font-weight: 900;
-          border: 2.5px solid #4a2c11;
+          border: 2px solid #4a2c11;
         }
         .muffin-card-header {
           padding: 14px 18px;
@@ -1370,105 +1370,105 @@ export function StudentDashboard() {
       </header>
 
       {/* ─── Main Grid Layout ─── */}
-      <main className="grid grid-cols-1 lg:grid-cols-[410px_1fr] gap-3 w-full flex-1 min-h-0 overflow-hidden">
+      <main className="grid grid-cols-1 lg:grid-cols-[370px_1fr] gap-3 w-full flex-1 min-h-0 overflow-hidden">
         
         {/* Left Side Controls Panel */}
         <div className="space-y-3 flex flex-col h-full min-h-0">
           
           {/* Panel 1: Raw Material Management */}
-          <div className="bg-white border-4 border-[#4a2c11] rounded-2xl shadow-[0_4px_0_#4a2c11] overflow-hidden flex flex-col min-h-0 flex-[1.1]">
-            <div className="bg-[#89b873] muffin-card-header py-1.5 px-4 text-[14px]">
-              <span className="text-[13px] uppercase tracking-wider font-extrabold text-white">Raw Material Management</span>
-              <span className="text-base">🌾</span>
+          <div className="bg-white border-[3px] border-[#4a2c11] rounded-xl shadow-[0_3px_0_#4a2c11] overflow-hidden flex flex-col min-h-0 flex-[1.1]">
+            <div className="bg-[#89b873] muffin-card-header text-white" style={{ padding: '6px 12px', fontSize: '12px', borderBottomWidth: '3px' }}>
+              <span className="text-[11px] uppercase tracking-wider font-extrabold">Raw Material Management</span>
+              <span className="text-sm">🌾</span>
             </div>
             
-            <div className="p-2 space-y-1.5 flex-1 overflow-y-auto min-h-0">
+            <div className="p-1.5 space-y-1 flex-1 overflow-y-auto min-h-0">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b-2 border-[#e6ccb2] text-[11px] uppercase tracking-wider text-[#8a7360] font-black">
-                    <th className="pb-1.5">Item</th>
-                    <th className="pb-1.5 text-center">Order Qty</th>
-                    <th className="pb-1.5 text-center">ROP</th>
-                    <th className="pb-1.5 text-right">Lead Time</th>
+                  <tr className="border-b border-[#e6ccb2] text-[9.5px] uppercase tracking-wider text-[#8a7360] font-black">
+                    <th className="pb-1">Item</th>
+                    <th className="pb-1 text-center">Order Qty</th>
+                    <th className="pb-1 text-center">ROP</th>
+                    <th className="pb-1 text-right">Lead Time</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-dashed divide-[#e6ccb2] text-[14px] font-extrabold">
+                <tbody className="divide-y divide-dashed divide-[#e6ccb2] text-[12px] font-extrabold">
                   {/* Flour */}
                   <tr>
-                    <td className="py-0.5 flex items-center gap-2 text-[14px] font-extrabold text-[#4a2c11]">
-                      <span>🥖</span> Flour (Stock: {Math.round(gameState?.flourStock ?? flourStock)})
+                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11]">
+                      <span>🥖</span> Flour ({Math.round(gameState?.flourStock ?? flourStock)})
                     </td>
-                    <td className="py-0.5">
+                    <td className="py-[1px]">
                       <div className="qty-control justify-center">
                         <button onClick={() => setFlourQ(p => Math.max(100, p - 100))} className="qty-control-btn">-</button>
                         <span className="qty-lbl-large">{flourQ.toLocaleString()}</span>
                         <button onClick={() => setFlourQ(p => Math.min(9900, p + 100))} className="qty-control-btn">+</button>
                       </div>
                     </td>
-                    <td className="py-0.5 text-center">
-                      <div className="flex items-center justify-center gap-1">
+                    <td className="py-[1px] text-center">
+                      <div className="flex items-center justify-center gap-0.5">
                         <input 
                           type="number" 
                           value={flourR}
                           onChange={(e) => setFlourR(Math.max(0, parseInt(e.target.value, 10) || 0))}
                           className="input-rop-large"
                         />
-                        <button onClick={() => setFlourR(0)} className="text-[#c62828] text-xs font-black hover:scale-125 transition-transform" title="Clear">✕</button>
+                        <button onClick={() => setFlourR(0)} className="text-[#c62828] text-[10px] font-black hover:scale-125 transition-transform" title="Clear">✕</button>
                       </div>
                     </td>
-                    <td className="py-0.5 text-right lead-lbl-large font-mono">1.2 Days</td>
+                    <td className="py-[1px] text-right lead-lbl-large font-mono">1.2d</td>
                   </tr>
                   
                   {/* Sugar */}
                   <tr>
-                    <td className="py-0.5 flex items-center gap-2 text-[14px] font-extrabold text-[#4a2c11]">
-                      <span>🥣</span> Sugar (Stock: {Math.round(gameState?.sugarStock ?? sugarStock)})
+                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11]">
+                      <span>🥣</span> Sugar ({Math.round(gameState?.sugarStock ?? sugarStock)})
                     </td>
-                    <td className="py-0.5">
+                    <td className="py-[1px]">
                       <div className="qty-control justify-center">
                         <button onClick={() => setSugarQ(p => Math.max(100, p - 100))} className="qty-control-btn">-</button>
                         <span className="qty-lbl-large">{sugarQ.toLocaleString()}</span>
                         <button onClick={() => setSugarQ(p => Math.min(9900, p + 100))} className="qty-control-btn">+</button>
                       </div>
                     </td>
-                    <td className="py-0.5 text-center">
-                      <div className="flex items-center justify-center gap-1">
+                    <td className="py-[1px] text-center">
+                      <div className="flex items-center justify-center gap-0.5">
                         <input 
                           type="number" 
                           value={sugarR}
                           onChange={(e) => setSugarR(Math.max(0, parseInt(e.target.value, 10) || 0))}
                           className="input-rop-large"
                         />
-                        <button onClick={() => setSugarR(0)} className="text-[#c62828] text-xs font-black hover:scale-125 transition-transform" title="Clear">✕</button>
+                        <button onClick={() => setSugarR(0)} className="text-[#c62828] text-[10px] font-black hover:scale-125 transition-transform" title="Clear">✕</button>
                       </div>
                     </td>
-                    <td className="py-0.5 text-right lead-lbl-large font-mono">1.0 Days</td>
+                    <td className="py-[1px] text-right lead-lbl-large font-mono">1.0d</td>
                   </tr>
 
                   {/* Cocoa */}
                   <tr>
-                    <td className="py-0.5 flex items-center gap-2 text-[14px] font-extrabold text-[#4a2c11]">
-                      <span>🫙</span> Cocoa (Stock: {Math.round(gameState?.cocoaStock ?? cocoaStock)})
+                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11]">
+                      <span>🫙</span> Cocoa ({Math.round(gameState?.cocoaStock ?? cocoaStock)})
                     </td>
-                    <td className="py-0.5">
+                    <td className="py-[1px]">
                       <div className="qty-control justify-center">
                         <button onClick={() => setCocoaQ(p => Math.max(50, p - 50))} className="qty-control-btn">-</button>
                         <span className="qty-lbl-large">{cocoaQ.toLocaleString()}</span>
                         <button onClick={() => setCocoaQ(p => Math.min(9900, p + 50))} className="qty-control-btn">+</button>
                       </div>
                     </td>
-                    <td className="py-0.5 text-center">
-                      <div className="flex items-center justify-center gap-1">
+                    <td className="py-[1px] text-center">
+                      <div className="flex items-center justify-center gap-0.5">
                         <input 
                           type="number" 
                           value={cocoaR}
                           onChange={(e) => setCocoaR(Math.max(0, parseInt(e.target.value, 10) || 0))}
                           className="input-rop-large"
                         />
-                        <button onClick={() => setCocoaR(0)} className="text-[#c62828] text-xs font-black hover:scale-125 transition-transform" title="Clear">✕</button>
+                        <button onClick={() => setCocoaR(0)} className="text-[#c62828] text-[10px] font-black hover:scale-125 transition-transform" title="Clear">✕</button>
                       </div>
                     </td>
-                    <td className="py-0.5 text-right lead-lbl-large font-mono">1.5 Days</td>
+                    <td className="py-[1px] text-right lead-lbl-large font-mono">1.5d</td>
                   </tr>
                 </tbody>
               </table>
@@ -1488,22 +1488,23 @@ export function StudentDashboard() {
                   }
                 }}
                 id="apply-order-btn"
-                className="muffin-btn bg-[#89b873] border-[#4a2c11] hover:bg-[#78a562] active:translate-y-1 block w-full text-center py-1.5 mt-1.5 transition-colors"
+                className="muffin-btn bg-[#89b873] border-[#4a2c11] hover:bg-[#78a562] active:translate-y-0.5 block w-full text-center transition-colors"
+                style={{ padding: '6px 12px', fontSize: '11px', marginTop: '6px', minHeight: 'auto', boxShadow: '0 2.5px 0 #4a2c11' }}
               >
                 Apply Order Changes
               </button>
 
               {/* Pending Shipments */}
-              <div className="mt-2 pt-2 border-t border-[#4a2c11]/15">
-                <span className="text-[10px] uppercase font-black tracking-wider text-[#8c7662] block mb-1">📦 Pending Shipments</span>
+              <div className="mt-1 pt-1 border-t border-[#4a2c11]/10">
+                <span className="text-[9px] uppercase font-black tracking-wider text-[#8c7662] block mb-0.5">📦 Pending Shipments</span>
                 {((gameState?.deliveries ?? currentTeam.deliveries ?? []).length === 0) ? (
-                  <div className="text-[10px] italic text-[#8c7662] text-center py-1">No orders in transit.</div>
+                  <div className="text-[9px] italic text-[#8c7662] text-center py-0.5">No orders in transit.</div>
                 ) : (
                   <div className="flex flex-wrap gap-1">
                     {(gameState?.deliveries ?? currentTeam.deliveries ?? []).map((d, idx) => {
                       const ticksRemaining = Math.max(0, d.roundArriving - (gameState?.tick ?? 1));
                       return (
-                        <div key={idx} className="text-[9px] bg-[#f1ebd9] border border-[#4a2c11] rounded px-1.5 py-0.5 font-mono text-[#4a2c11] flex items-center gap-1 font-bold">
+                        <div key={idx} className="text-[8.5px] bg-[#f1ebd9] border border-[#4a2c11] rounded px-1 py-0.25 font-mono text-[#4a2c11] flex items-center gap-1 font-bold">
                           <span className="capitalize">{d.item || 'flour'}:</span>
                           <span>{d.quantity}</span>
                           <span className="text-indigo-600">({ticksRemaining}d)</span>
@@ -1517,31 +1518,31 @@ export function StudentDashboard() {
           </div>
 
           {/* Panel 2: Workfloor Activity */}
-          <div className="bg-white border-4 border-[#4a2c11] rounded-2xl shadow-[0_4px_0_#4a2c11] overflow-hidden flex flex-col min-h-0 flex-1">
-            <div className="bg-[#9f7eb8] muffin-card-header py-1.5 px-4 text-[14px]">
-              <span className="text-[13px] uppercase tracking-wider font-extrabold text-white">Workfloor Activity</span>
-              <span className={`text-base ${mixingRunning + bakingRunning + icingRunning + packingRunning > 0 ? 'gear-spin-active' : ''}`}>⚙️</span>
+          <div className="bg-white border-[3px] border-[#4a2c11] rounded-xl shadow-[0_3px_0_#4a2c11] overflow-hidden flex flex-col min-h-0 flex-1">
+            <div className="bg-[#9f7eb8] muffin-card-header text-white" style={{ padding: '6px 12px', fontSize: '12px', borderBottomWidth: '3px' }}>
+              <span className="text-[11px] uppercase tracking-wider font-extrabold">Workfloor Activity</span>
+              <span className={`text-sm ${mixingRunning + bakingRunning + icingRunning + packingRunning > 0 ? 'gear-spin-active' : ''}`}>⚙️</span>
             </div>
 
-            <div className="p-2 space-y-1.5 flex-1 overflow-y-auto min-h-0">
+            <div className="p-1.5 space-y-1 flex-1 overflow-y-auto min-h-0">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b-2 border-[#e6ccb2] text-[11px] uppercase tracking-wider text-[#8a7360] font-black">
-                    <th className="pb-1.5">Machine</th>
-                    <th className="pb-1.5 text-center">Running</th>
-                    <th className="pb-1.5 text-center">Total</th>
-                    <th className="pb-1.5 text-center">Capacity</th>
-                    <th className="pb-1.5 text-right">Status</th>
+                  <tr className="border-b border-[#e6ccb2] text-[9.5px] uppercase tracking-wider text-[#8a7360] font-black">
+                    <th className="pb-1">Machine</th>
+                    <th className="pb-1 text-center">Running</th>
+                    <th className="pb-1 text-center">Total</th>
+                    <th className="pb-1 text-center">Capacity</th>
+                    <th className="pb-1 text-right">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-dashed divide-[#e6ccb2] text-[14px] font-extrabold">
+                <tbody className="divide-y divide-dashed divide-[#e6ccb2] text-[12px] font-extrabold">
                   {/* Mixing */}
                   <tr>
-                    <td className="py-0.5 flex items-center gap-2 text-[14px] font-extrabold text-[#4a2c11]">🥣 Mixing</td>
-                    <td className="py-0.5">
+                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11]">🥣 Mixing</td>
+                    <td className="py-[1px]">
                       <div className="qty-control justify-center">
                         <button onClick={() => setMixingRunning(p => Math.max(0, p - 1))} className="qty-control-btn">-</button>
-                        <span className="qty-lbl-large" style={{ minWidth: '30px' }}>{mixingRunning}</span>
+                        <span className="qty-lbl-large" style={{ minWidth: '24px' }}>{mixingRunning}</span>
                         <button 
                           onClick={() => {
                             if (mixingRunning >= mixingOwned) {
@@ -1556,11 +1557,11 @@ export function StudentDashboard() {
                         </button>
                       </div>
                     </td>
-                    <td className="py-0.5 text-center text-[14px] font-black text-[#4a2c11]">{mixingOwned}</td>
-                    <td className="py-0.5">
-                      <div className="flex flex-col items-center gap-1">
-                        <span className="text-[11px] font-mono leading-none text-[#4a2c11]">{mixingOwned > 0 ? Math.round((mixingRunning / mixingOwned) * 100) : 0}%</span>
-                        <div className="muffin-progress-bg w-[75px] h-[8px] mx-auto">
+                    <td className="py-[1px] text-center text-[11.5px] font-black text-[#4a2c11]">{mixingOwned}</td>
+                    <td className="py-[1px]">
+                      <div className="flex flex-col items-center gap-0.5">
+                        <span className="text-[9.5px] font-mono leading-none text-[#4a2c11]">{mixingOwned > 0 ? Math.round((mixingRunning / mixingOwned) * 100) : 0}%</span>
+                        <div className="muffin-progress-bg w-[60px] h-[6px] mx-auto">
                           <div 
                             className="muffin-progress-fill bg-[#89b873] h-full"
                             style={{ width: `${mixingOwned > 0 ? (mixingRunning / mixingOwned) * 100 : 0}%` }}
@@ -1568,7 +1569,7 @@ export function StudentDashboard() {
                         </div>
                       </div>
                     </td>
-                    <td className="py-0.5 text-right">
+                    <td className="py-[1px] text-right">
                       <span className={mixingRunning > 0 ? 'muffin-badge-on' : 'muffin-badge-off'}>
                         {mixingRunning > 0 ? 'ON' : 'OFF'}
                       </span>
@@ -1577,11 +1578,11 @@ export function StudentDashboard() {
 
                   {/* Baking */}
                   <tr>
-                    <td className="py-0.5 flex items-center gap-2 text-[14px] font-extrabold text-[#4a2c11]">🔥 Baking</td>
-                    <td className="py-0.5">
+                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11]">🔥 Baking</td>
+                    <td className="py-[1px]">
                       <div className="qty-control justify-center">
                         <button onClick={() => setBakingRunning(p => Math.max(0, p - 1))} className="qty-control-btn">-</button>
-                        <span className="qty-lbl-large" style={{ minWidth: '30px' }}>{bakingRunning}</span>
+                        <span className="qty-lbl-large" style={{ minWidth: '24px' }}>{bakingRunning}</span>
                         <button 
                           onClick={() => {
                             if (bakingRunning >= bakingOwned) {
@@ -1596,11 +1597,11 @@ export function StudentDashboard() {
                         </button>
                       </div>
                     </td>
-                    <td className="py-0.5 text-center text-[14px] font-black text-[#4a2c11]">{bakingOwned}</td>
-                    <td className="py-0.5">
-                      <div className="flex flex-col items-center gap-1">
-                        <span className="text-[11px] font-mono leading-none text-[#4a2c11]">{bakingOwned > 0 ? Math.round((bakingRunning / bakingOwned) * 100) : 0}%</span>
-                        <div className="muffin-progress-bg w-[75px] h-[8px] mx-auto">
+                    <td className="py-[1px] text-center text-[11.5px] font-black text-[#4a2c11]">{bakingOwned}</td>
+                    <td className="py-[1px]">
+                      <div className="flex flex-col items-center gap-0.5">
+                        <span className="text-[9.5px] font-mono leading-none text-[#4a2c11]">{bakingOwned > 0 ? Math.round((bakingRunning / bakingOwned) * 100) : 0}%</span>
+                        <div className="muffin-progress-bg w-[60px] h-[6px] mx-auto">
                           <div 
                             className="muffin-progress-fill bg-[#ffb74d] h-full"
                             style={{ width: `${bakingOwned > 0 ? (bakingRunning / bakingOwned) * 100 : 0}%` }}
@@ -1608,7 +1609,7 @@ export function StudentDashboard() {
                         </div>
                       </div>
                     </td>
-                    <td className="py-0.5 text-right">
+                    <td className="py-[1px] text-right">
                       <span className={bakingRunning > 0 ? 'muffin-badge-on' : 'muffin-badge-off'}>
                         {bakingRunning > 0 ? 'ON' : 'OFF'}
                       </span>
@@ -1617,11 +1618,11 @@ export function StudentDashboard() {
 
                   {/* Icing */}
                   <tr>
-                    <td className="py-0.5 flex items-center gap-2 text-[14px] font-extrabold text-[#4a2c11]">🧁 Icing</td>
-                    <td className="py-0.5">
+                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11]">🧁 Icing</td>
+                    <td className="py-[1px]">
                       <div className="qty-control justify-center">
                         <button onClick={() => setIcingRunning(p => Math.max(0, p - 1))} className="qty-control-btn">-</button>
-                        <span className="qty-lbl-large" style={{ minWidth: '30px' }}>{icingRunning}</span>
+                        <span className="qty-lbl-large" style={{ minWidth: '24px' }}>{icingRunning}</span>
                         <button 
                           onClick={() => {
                             if (icingRunning >= icingOwned) {
@@ -1636,11 +1637,11 @@ export function StudentDashboard() {
                         </button>
                       </div>
                     </td>
-                    <td className="py-0.5 text-center text-[14px] font-black text-[#4a2c11]">{icingOwned}</td>
-                    <td className="py-0.5">
-                      <div className="flex flex-col items-center gap-1">
-                        <span className="text-[11px] font-mono leading-none text-[#4a2c11]">{icingOwned > 0 ? Math.round((icingRunning / icingOwned) * 100) : 0}%</span>
-                        <div className="muffin-progress-bg w-[75px] h-[8px] mx-auto">
+                    <td className="py-[1px] text-center text-[11.5px] font-black text-[#4a2c11]">{icingOwned}</td>
+                    <td className="py-[1px]">
+                      <div className="flex flex-col items-center gap-0.5">
+                        <span className="text-[9.5px] font-mono leading-none text-[#4a2c11]">{icingOwned > 0 ? Math.round((icingRunning / icingOwned) * 100) : 0}%</span>
+                        <div className="muffin-progress-bg w-[60px] h-[6px] mx-auto">
                           <div 
                             className="muffin-progress-fill bg-[#f06292] h-full"
                             style={{ width: `${icingOwned > 0 ? (icingRunning / icingOwned) * 100 : 0}%` }}
@@ -1648,7 +1649,7 @@ export function StudentDashboard() {
                         </div>
                       </div>
                     </td>
-                    <td className="py-0.5 text-right">
+                    <td className="py-[1px] text-right">
                       <span className={icingRunning > 0 ? 'muffin-badge-on' : 'muffin-badge-off'}>
                         {icingRunning > 0 ? 'ON' : 'OFF'}
                       </span>
@@ -1657,11 +1658,11 @@ export function StudentDashboard() {
 
                   {/* Packaging */}
                   <tr>
-                    <td className="py-0.5 flex items-center gap-2 text-[14px] font-extrabold text-[#4a2c11]">📦 Packaging</td>
-                    <td className="py-0.5">
+                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11]">📦 Packaging</td>
+                    <td className="py-[1px]">
                       <div className="qty-control justify-center">
                         <button onClick={() => setPackingRunning(p => Math.max(0, p - 1))} className="qty-control-btn">-</button>
-                        <span className="qty-lbl-large" style={{ minWidth: '30px' }}>{packingRunning}</span>
+                        <span className="qty-lbl-large" style={{ minWidth: '24px' }}>{packingRunning}</span>
                         <button 
                           onClick={() => {
                             if (packingRunning >= packingOwned) {
@@ -1676,11 +1677,11 @@ export function StudentDashboard() {
                         </button>
                       </div>
                     </td>
-                    <td className="py-0.5 text-center text-[14px] font-black text-[#4a2c11]">{packingOwned}</td>
-                    <td className="py-0.5">
-                      <div className="flex flex-col items-center gap-1">
-                        <span className="text-[11px] font-mono leading-none text-[#4a2c11]">{packingOwned > 0 ? Math.round((packingRunning / packingOwned) * 100) : 0}%</span>
-                        <div className="muffin-progress-bg w-[75px] h-[8px] mx-auto">
+                    <td className="py-[1px] text-center text-[11.5px] font-black text-[#4a2c11]">{packingOwned}</td>
+                    <td className="py-[1px]">
+                      <div className="flex flex-col items-center gap-0.5">
+                        <span className="text-[9.5px] font-mono leading-none text-[#4a2c11]">{packingOwned > 0 ? Math.round((packingRunning / packingOwned) * 100) : 0}%</span>
+                        <div className="muffin-progress-bg w-[60px] h-[6px] mx-auto">
                           <div 
                             className="muffin-progress-fill bg-[#4db6ac] h-full"
                             style={{ width: `${packingOwned > 0 ? (packingRunning / packingOwned) * 100 : 0}%` }}
@@ -1688,7 +1689,7 @@ export function StudentDashboard() {
                         </div>
                       </div>
                     </td>
-                    <td className="py-0.5 text-right">
+                    <td className="py-[1px] text-right">
                       <span className={packingRunning > 0 ? 'muffin-badge-on' : 'muffin-badge-off'}>
                         {packingRunning > 0 ? 'ON' : 'OFF'}
                       </span>
@@ -1699,7 +1700,8 @@ export function StudentDashboard() {
 
               <button 
                 onClick={handleApplyOperations}
-                className="muffin-btn bg-[#9f7eb8] border-[#4a2c11] hover:bg-[#8663a0] active:translate-y-1 block w-full text-center py-1.5 mt-1.5"
+                className="muffin-btn bg-[#9f7eb8] border-[#4a2c11] hover:bg-[#8663a0] active:translate-y-0.5 block w-full text-center"
+                style={{ padding: '6px 12px', fontSize: '11px', marginTop: '6px', minHeight: 'auto', boxShadow: '0 2.5px 0 #4a2c11' }}
               >
                 Apply Operations
               </button>
