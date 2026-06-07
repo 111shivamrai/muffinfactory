@@ -156,11 +156,9 @@ export function StudentDashboard() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [showContractsModal, setShowContractsModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
-  const [countdown, setCountdown] = useState(20);
   const lastWrittenStateRef = useRef<any>({});
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [dismissEndedModal, setDismissEndedModal] = useState(false);
-  const [gameRunning, setGameRunning] = useState(false);
 
   // Sync ended modal dismissal state
   useEffect(() => {
@@ -169,96 +167,56 @@ export function StudentDashboard() {
     }
   }, [session?.status]);
 
-  // ─── LOCAL GAME LOOP STATE ───
-  const [cashFlash, setCashFlash] = useState<'gain' | 'loss' | null>(null);
+  // ─── SIMULATION ENGINE STATE ───
+  const [gameState, setGameState] = useState<LocalGameState | null>(null);
+  const [gameRunning, setGameRunning] = useState(false);
+  const [countdown, setCountdown] = useState(20);
 
-  // Track previous balance to determine cash flow direction (incoming/outgoing)
+  // Refs — always fresh inside intervals, never stale
+  const stateRef = useRef<LocalGameState | null>(null);
+  const sessionRef = useRef(session);
+  const currentTeamRef = useRef(currentTeam);
+  const isDirectPlayRef = useRef(isDirectPlay);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const tickIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Keep all refs in sync on every render
+  useEffect(() => { stateRef.current = gameState; }, [gameState]);
+  useEffect(() => { sessionRef.current = session; }, [session]);
+  useEffect(() => { currentTeamRef.current = currentTeam; }, [currentTeam]);
+  useEffect(() => { isDirectPlayRef.current = isDirectPlay; }, [isDirectPlay]);
+
+  // Cash flash animation
+  const [cashFlash, setCashFlash] = useState<'gain' | 'loss' | null>(null);
   const prevBalanceRef = useRef<number | null>(null);
   const [balanceChange, setBalanceChange] = useState<'increase' | 'decrease' | 'none'>('none');
 
-  const tickIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const localTeamRef = useRef<typeof currentTeam | null>(null);
-  const localRoundRef = useRef<number>(1);
-  const [localTeam, setLocalTeam] = useState<typeof currentTeam | null>(null);
-  const [localRound, setLocalRound] = useState(1);
-  const [tickLog, setTickLog] = useState<string[]>([]);
-
-  // Round results summary
-  const lastResult = results && results.length > 0 ? results[results.length - 1] : null;
-
-  const activeTeam = localTeam ?? currentTeam;
-  const gameState = activeTeam ? {
-    balance: activeTeam.balance,
-    initialCash: activeTeam.initialCash ?? activeTeam.balance,
-    salesRevenue: (activeTeam as any).salesRevenue ?? 0,
-    contractRevenue: (activeTeam as any).contractRevenue ?? 0,
-    totalCostsPaid: (activeTeam as any).totalCostsPaid ?? 0,
-    inventory: activeTeam.inventory?.standard ?? 0,
-    flourStock: activeTeam.flourStock ?? 0,
-    sugarStock: activeTeam.sugarStock ?? 0,
-    eggsStock: activeTeam.eggsStock ?? 0,
-    cocoaStock: activeTeam.cocoaStock ?? 0,
-    deliveries: activeTeam.deliveries ?? [],
-    contracts: activeTeam.contracts ?? [],
-    stations: activeTeam.stations ?? DEFAULT_STATIONS,
-    flourOrderQty: activeTeam.flourOrderQty ?? 2000,
-    flourROP: activeTeam.flourROP ?? 500,
-    sugarOrderQty: activeTeam.sugarOrderQty ?? 1500,
-    sugarROP: activeTeam.sugarROP ?? 400,
-    eggsOrderQty: activeTeam.eggsOrderQty ?? 1200,
-    eggsROP: activeTeam.eggsROP ?? 300,
-    cocoaOrderQty: activeTeam.cocoaOrderQty ?? 800,
-    cocoaROP: activeTeam.cocoaROP ?? 200,
-    tick: localRound,
-    lastDemand: lastResult ? (lastResult.soldQty?.standard || 0) + (lastResult.missedDemand?.standard || 0) : 0,
-    lastSold: lastResult ? (lastResult.soldQty?.standard || 0) : 0,
-    lastStockout: lastResult ? (lastResult.missedDemand?.standard || 0) : 0,
-    lastRevenue: lastResult ? lastResult.revenue : 0,
-    satisfaction: activeTeam.satisfaction ?? 100,
-    ropFiredThisTick: false,
-  } : null;
-
-  const stateRef = useRef<LocalGameState | null>(null);
-  useEffect(() => { stateRef.current = gameState; }, [gameState]);
-
-  // Refs for values needed inside the interval — prevents stale closures
-  const sessionRef = useRef(session);
-  useEffect(() => { sessionRef.current = session; }, [session]);
-
-  const currentTeamRef = useRef(currentTeam);
-  useEffect(() => { currentTeamRef.current = currentTeam; }, [currentTeam]);
-
-  const isDirectPlayRef = useRef(isDirectPlay);
-  useEffect(() => { isDirectPlayRef.current = isDirectPlay; }, [isDirectPlay]);
-
   useEffect(() => {
-    if (!localTeam) return;
-    const curr = localTeam.balance;
+    if (!gameState) return;
+    const curr = gameState.balance;
     if (prevBalanceRef.current !== null) {
-      const prev = prevBalanceRef.current;
-      if (curr > prev) setBalanceChange('increase');
-      else if (curr < prev) setBalanceChange('decrease');
+      if (curr > prevBalanceRef.current) setBalanceChange('increase');
+      else if (curr < prevBalanceRef.current) setBalanceChange('decrease');
       else setBalanceChange('none');
     }
     prevBalanceRef.current = curr;
-  }, [localTeam?.balance]);
+  }, [gameState?.balance]);
 
-  useEffect(() => {
-    if (!currentTeam || localTeam) return; // only initialize once
-    setLocalTeam(currentTeam);
-    localTeamRef.current = currentTeam;
-    const round = session?.currentRound ?? 1;
-    setLocalRound(round);
-    localRoundRef.current = round;
-  }, [currentTeam?.id]);
+  const lastResult = results && results.length > 0 ? results[results.length - 1] : null;
 
-  useEffect(() => {
-    localTeamRef.current = localTeam;
-  }, [localTeam]);
-
-  useEffect(() => {
-    localRoundRef.current = localRound;
-  }, [localRound]);
+  const activeTeam = {
+    ...currentTeam,
+    balance: gameState?.balance ?? currentTeam.balance,
+    flourStock: gameState?.flourStock ?? currentTeam.flourStock,
+    sugarStock: gameState?.sugarStock ?? currentTeam.sugarStock,
+    eggsStock: gameState?.eggsStock ?? currentTeam.eggsStock,
+    cocoaStock: gameState?.cocoaStock ?? currentTeam.cocoaStock,
+    satisfaction: gameState?.satisfaction ?? currentTeam.satisfaction,
+    stations: gameState?.stations ?? currentTeam.stations,
+    deliveries: gameState?.deliveries ?? currentTeam.deliveries,
+    contracts: gameState?.contracts ?? currentTeam.contracts,
+    inventory: gameState ? { standard: gameState.inventory } : currentTeam.inventory,
+  };
 
   // Raw Material Local Inputs (committed on Apply)
   const [flourQ, setFlourQ] = useState(2000);
@@ -278,7 +236,7 @@ export function StudentDashboard() {
 
   // Sync inputs from database updates
   useEffect(() => {
-    if (localTeam) return; // Don't override local state once simulation is running
+    if (gameState) return; // Don't override local state once simulation is running
     if (currentTeam) {
       setFlourQ(currentTeam.flourOrderQty ?? 2000);
       setFlourR(currentTeam.flourROP ?? 500);
@@ -298,271 +256,357 @@ export function StudentDashboard() {
     }
   }, [currentTeam?.id]);
 
-  // Initialize local state from Firestore data ONCE
+  // Initialize gameState from Firestore on mount
   useEffect(() => {
-    if (!currentTeam || localTeam) return; // only initialize once
-    setLocalTeam(currentTeam);
-    localTeamRef.current = currentTeam;
-    const round = session?.currentRound ?? 1;
-    setLocalRound(round);
-    localRoundRef.current = round;
+    if (!currentTeam || gameState) return; // only initialize once
     
-    // Set initial lastWritten values
     const initialFlour = currentTeam.flourStock ?? Math.round(0.35 * (currentTeam.rawMaterials || 0));
     const initialSugar = currentTeam.sugarStock ?? Math.round(0.25 * (currentTeam.rawMaterials || 0));
     const initialEggs = currentTeam.eggsStock ?? Math.round(0.20 * (currentTeam.rawMaterials || 0));
     const initialCocoa = currentTeam.cocoaStock ?? Math.round(0.20 * (currentTeam.rawMaterials || 0));
-    lastWrittenStateRef.current = {
-      balance: currentTeam.balance,
+
+    const initialState: LocalGameState = {
+      balance: currentTeam.balance ?? INITIAL_VALUES.BALANCE,
+      initialCash: currentTeam.initialCash ?? currentTeam.balance ?? INITIAL_VALUES.BALANCE,
+      salesRevenue: currentTeam.salesRevenue ?? 0,
+      contractRevenue: currentTeam.contractRevenue ?? 0,
+      totalCostsPaid: currentTeam.totalCostsPaid ?? 0,
+      inventory: currentTeam.inventory?.standard ?? 0,
       flourStock: initialFlour,
       sugarStock: initialSugar,
       eggsStock: initialEggs,
       cocoaStock: initialCocoa,
+      deliveries: currentTeam.deliveries ?? [],
+      contracts: currentTeam.contracts ?? getInitialContracts(),
+      stations: currentTeam.stations ?? JSON.parse(JSON.stringify(DEFAULT_STATIONS)),
+      flourOrderQty: currentTeam.flourOrderQty ?? 2000,
+      flourROP: currentTeam.flourROP ?? 500,
+      sugarOrderQty: currentTeam.sugarOrderQty ?? 1500,
+      sugarROP: currentTeam.sugarROP ?? 400,
+      eggsOrderQty: currentTeam.eggsOrderQty ?? 1200,
+      eggsROP: currentTeam.eggsROP ?? 300,
+      cocoaOrderQty: currentTeam.cocoaOrderQty ?? 800,
+      cocoaROP: currentTeam.cocoaROP ?? 200,
+      tick: currentTeam.tick ?? session?.currentRound ?? 1,
+      lastDemand: 0,
+      lastSold: 0,
+      lastStockout: 0,
+      lastRevenue: 0,
       satisfaction: currentTeam.satisfaction ?? 100,
-      tick: round,
+      ropFiredThisTick: false
     };
-  }, [currentTeam?.id]);
 
-  // Sync remote changes ONLY from instructor interventions (not from our own Firestore writes bouncing back)
-  useEffect(() => {
-    if (!currentTeam || !gameState) return;
-    const last = lastWrittenStateRef.current;
-    // If balance AND tick both match what we last wrote, this is our own write bouncing back — ignore it
-    if (last.balance !== undefined && currentTeam.balance === last.balance && (currentTeam as any).tick === last.tick) return;
-    // Otherwise it's an instructor intervention — apply it
-    setLocalTeam(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        balance: currentTeam.balance ?? prev.balance,
-        initialCash: currentTeam.initialCash ?? prev.initialCash,
-        flourStock: currentTeam.flourStock ?? prev.flourStock,
-        sugarStock: currentTeam.sugarStock ?? prev.sugarStock,
-        eggsStock: currentTeam.eggsStock ?? prev.eggsStock,
-        cocoaStock: currentTeam.cocoaStock ?? prev.cocoaStock,
-        satisfaction: currentTeam.satisfaction ?? prev.satisfaction,
-        stations: currentTeam.stations ?? prev.stations,
-        contracts: currentTeam.contracts ?? prev.contracts,
-        deliveries: currentTeam.deliveries ?? prev.deliveries,
-        flourOrderQty: currentTeam.flourOrderQty ?? prev.flourOrderQty,
-        flourROP: currentTeam.flourROP ?? prev.flourROP,
-        sugarOrderQty: currentTeam.sugarOrderQty ?? prev.sugarOrderQty,
-        sugarROP: currentTeam.sugarROP ?? prev.sugarROP,
-        eggsOrderQty: currentTeam.eggsOrderQty ?? prev.eggsOrderQty,
-        eggsROP: currentTeam.eggsROP ?? prev.eggsROP,
-        cocoaOrderQty: currentTeam.cocoaOrderQty ?? prev.cocoaOrderQty,
-        cocoaROP: currentTeam.cocoaROP ?? prev.cocoaROP,
-      };
-    });
-    lastWrittenStateRef.current = { balance: currentTeam.balance, tick: (currentTeam as any).tick };
-  }, [currentTeam?.balance, (currentTeam as any)?.tick]);
+    setGameState(initialState);
+    lastWrittenStateRef.current = {
+      balance: initialState.balance,
+      flourStock: initialState.flourStock,
+      sugarStock: initialState.sugarStock,
+      eggsStock: initialState.eggsStock,
+      cocoaStock: initialState.cocoaStock,
+      satisfaction: initialState.satisfaction,
+      tick: initialState.tick,
+    };
+  }, [currentTeam?.id, session?.id]);
 
-  // Sync remote session currentRound back to localRound
-  useEffect(() => {
-    if (session?.currentRound && session.currentRound !== localRound) {
-      setLocalRound(session.currentRound);
-      localRoundRef.current = session.currentRound;
-    }
-  }, [session?.currentRound]);
-
-  // ─── UNIFIED LOCAL GAME LOOP & COUNTDOWN TIMER (Soda Pop Style) ───
-  const runLocalTick = () => {
-    try {
-      const s = stateRef.current;
-      const session = sessionRef.current;
-      const currentTeam = currentTeamRef.current;
-      const isDirectPlay = isDirectPlayRef.current;
-
-      if (!s || !session || !currentTeam) return;
-
-      const round = s.tick;
-
-      // Check end condition: 365 days
-      if (round > 365) {
-        setGameRunning(false);
-        setDismissEndedModal(false);
-        if (session?.id && currentTeam?.id) {
-          if (isDirectPlay) {
-            updateSession({ status: 'ended' });
-          } else {
-            updateDoc(doc(db, `sessions/${session.id}/teams/${currentTeam.id}`), {
-              status: 'ended'
-            }).catch(console.error);
-          }
-        }
-        return;
-      }
-
-      // Build a dummy decision — ROP/Q policy runs automatically inside processDecision
-      const dummyDecision = {
-        id: `r${round}`,
-        sessionId: currentTeam.sessionId,
-        teamId: currentTeam.id,
-        round,
-        productionQty: { standard: 0 },
-        rawMaterialOrder: 0,
-        marketingSpend: 0,
-        submittedAt: new Date().toISOString()
-      };
-
-      const params = session?.settings?.parameters ?? DEFAULT_PARAMETERS;
-      const capacity = session?.settings?.capacity ?? 72;
-
-      const { updatedTeam, result } = processDecision(
-        currentTeam,
-        dummyDecision,
-        round,
-        [],
-        capacity,
-        session?.activeEvent ?? null,
-        params
-      );
-
-      const nextRound = round + 1;
-
-      // Calculate sales/contract revenue splits and opex
-      const salesRev = (currentTeam as any).salesRevenue || 0;
-      const contractRev = (currentTeam as any).contractRevenue || 0;
-      const costsPaid = (currentTeam as any).totalCostsPaid || 0;
-
-      let roundContractRevenue = 0;
-      (updatedTeam.contracts || []).forEach((c, idx) => {
-        const prevC = (currentTeam.contracts || [])[idx];
-        if (prevC && c.status === 'accepted') {
-          const diffDelivered = c.deliveredCount - prevC.deliveredCount;
-          if (diffDelivered > 0) {
-            roundContractRevenue += diffDelivered * c.pricePerUnit;
-          }
-        }
-      });
-      const roundSalesRevenue = result.revenue - roundContractRevenue;
-      
-      const nextSalesRevenue = salesRev + roundSalesRevenue;
-      const nextContractRevenue = contractRev + roundContractRevenue;
-      const nextTotalCostsPaid = costsPaid + (result.revenue - result.profit);
-
-      const teamWithStats = {
-        ...updatedTeam,
-        salesRevenue: nextSalesRevenue,
-        contractRevenue: nextContractRevenue,
-        totalCostsPaid: nextTotalCostsPaid,
-        tick: nextRound
-      };
-
-      // Update local state immediately — this drives ALL UI re-renders
-      setLocalTeam(teamWithStats);
-      setLocalRound(nextRound);
-      localTeamRef.current = teamWithStats;
-      localRoundRef.current = nextRound;
-
-      lastWrittenStateRef.current = {
-        balance: teamWithStats.balance,
-        flourStock: teamWithStats.flourStock,
-        sugarStock: teamWithStats.sugarStock,
-        eggsStock: teamWithStats.eggsStock,
-        cocoaStock: teamWithStats.cocoaStock,
-        satisfaction: teamWithStats.satisfaction,
-        tick: nextRound,
-      };
-
-      // Update activity log
-      const logEntry = `Round ${round}: Revenue ₹${result.revenue.toLocaleString()} | Profit ₹${result.profit.toFixed(0)} | Stock ${updatedTeam.inventory?.standard ?? 0}`;
-      setTickLog(prev => [logEntry, ...prev].slice(0, 10));
-
-      // Write to Firestore as a NON-BLOCKING side effect
-      if (session?.id && currentTeam?.id) {
-        setDoc(
-          doc(db, `sessions/${session.id}/teams/${currentTeam.id}`),
-          {
-            balance: teamWithStats.balance,
-            inventory: teamWithStats.inventory,
-            rawMaterials: teamWithStats.rawMaterials,
-            flourStock: teamWithStats.flourStock,
-            sugarStock: teamWithStats.sugarStock,
-            eggsStock: teamWithStats.eggsStock,
-            cocoaStock: teamWithStats.cocoaStock,
-            satisfaction: teamWithStats.satisfaction,
-            deliveries: teamWithStats.deliveries,
-            contracts: teamWithStats.contracts,
-            stations: teamWithStats.stations,
-            flourOrderQty: teamWithStats.flourOrderQty,
-            flourROP: teamWithStats.flourROP,
-            sugarOrderQty: teamWithStats.sugarOrderQty,
-            sugarROP: teamWithStats.sugarROP,
-            eggsOrderQty: teamWithStats.eggsOrderQty,
-            eggsROP: teamWithStats.eggsROP,
-            cocoaOrderQty: teamWithStats.cocoaOrderQty,
-            cocoaROP: teamWithStats.cocoaROP,
-            salesRevenue: nextSalesRevenue,
-            contractRevenue: nextContractRevenue,
-            totalCostsPaid: nextTotalCostsPaid,
-            tick: nextRound,
-            lastTickAt: serverTimestamp()
-          },
-          { merge: true }
-        ).catch(e => console.error('Tick Firestore write failed:', e));
-
-        // Also save this round result
-        setDoc(
-          doc(db, `sessions/${session.id}/teams/${currentTeam.id}/results`, `r${round}`),
-          result
-        ).catch(e => console.error('Result write failed:', e));
-      }
-    } catch (err) {
-      console.error('StudentDashboard tick error:', err);
-    }
-  };
-
-  // Start/stop game loop based on session status
-  // Fires when session status changes OR when gameState first initializes
+  // Start game loop when session is active AND gameState is initialized
   useEffect(() => {
     if (session?.status === 'active' && gameState !== null) {
       setGameRunning(true);
     } else if (session?.status !== 'active') {
       setGameRunning(false);
     }
-    // If session is active but gameState is null, do nothing — wait for gameState to init
   }, [session?.status, gameState !== null]);
 
-  // Catch the case where gameState initializes after session is already active
+  // Also start if gameState initializes while session already active
   useEffect(() => {
-    if (gameState !== null && session?.status === 'active' && !gameRunning) {
+    if (gameState !== null && session?.status === 'active') {
       setGameRunning(true);
     }
   }, [gameState !== null]);
 
-  // Unified countdown and tick interval
+  // Sync ONLY instructor interventions back to gameState (not our own Firestore writes)
   useEffect(() => {
-    if (!gameRunning) return;
+    if (!currentTeam || !gameState) return;
+    const last = stateRef.current;
+    // If balance matches what we computed locally, this is our own write bouncing back — ignore
+    if (last && currentTeam.balance === last.balance && (currentTeam as any).tick === last.tick) return;
+    // External change (instructor intervention) — apply selectively
+    setGameState(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        balance: currentTeam.balance ?? prev.balance,
+        initialCash: currentTeam.initialCash ?? prev.initialCash,
+        contracts: currentTeam.contracts ?? prev.contracts,
+        stations: currentTeam.stations ?? prev.stations,
+        deliveries: currentTeam.deliveries ?? prev.deliveries,
+      };
+    });
+  }, [currentTeam?.balance, (currentTeam as any)?.tick]);
 
-    setCountdown(20);
-
-    const timerId = setInterval(() => {
-      setCountdown(prev => {
-        if (prev <= 1) {
-          return 20; // reset countdown — tick fires separately below
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    // Separate interval that fires the actual tick every 20 seconds
-    const tickTimerId = setInterval(() => {
-      runLocalTick();
-    }, 20000);
-
-    return () => {
-      clearInterval(timerId);
-      clearInterval(tickTimerId);
-    };
-  }, [gameRunning]);
-
-  // Reset countdown to the full duration whenever the day advances locally
+  // ─── MAIN SIMULATION ENGINE — EXACT SAME PATTERN AS SodaBottlingGame ───
   useEffect(() => {
-    if (localRound) {
+    if (gameRunning) {
       setCountdown(20);
+
+      // Countdown display — 1 tick per second, pure display only
+      intervalRef.current = setInterval(() => {
+        setCountdown(prev => (prev <= 1 ? 20 : prev - 1));
+      }, 1000);
+
+      // Simulation tick — fires every 20 seconds, ALL logic inside, reads from refs
+      const tickTimerId = setInterval(() => {
+        const s = stateRef.current;
+        const session = sessionRef.current;
+        const currentTeam = currentTeamRef.current;
+        const isDirectPlay = isDirectPlayRef.current;
+
+        if (!s || !session || !currentTeam) return;
+
+        try {
+          if (s.tick >= 365) {
+            setGameRunning(false);
+            setDismissEndedModal(false);
+            if (session.id && currentTeam.id) {
+              if (isDirectPlay) {
+                updateSession({ status: 'ended' });
+              } else {
+                updateDoc(doc(db, `sessions/${session.id}/teams/${currentTeam.id}`), {
+                  status: 'ended'
+                }).catch(console.error);
+              }
+            }
+            return;
+          }
+
+          const params = session.settings?.parameters ?? DEFAULT_PARAMETERS;
+          const LEAD_TIME = params.baseLeadTime ?? 1;
+          const RM_PRICE = params.rawMaterialUnitPrice ?? 8;
+          const STORAGE_COST = params.storageCost ?? 1;
+          const SELLING_PRICE = params.products?.[0]?.sellingPrice ?? 20;
+          const PRODUCTION_COST = params.products?.[0]?.productionCost ?? 2;
+          const BACKORDER_PENALTY = params.backorderPenalty ?? 2;
+          const event = session.activeEvent ?? null;
+
+          const arriving = s.deliveries.filter(d => d.roundArriving <= s.tick);
+          const stillPending = s.deliveries.filter(d => d.roundArriving > s.tick);
+
+          let flour = s.flourStock;
+          let sugar = s.sugarStock;
+          let eggs = s.eggsStock;
+          let cocoa = s.cocoaStock;
+
+          arriving.forEach(d => {
+            const item = d.item || 'flour';
+            if (item === 'flour') flour += d.quantity;
+            else if (item === 'sugar') sugar += d.quantity;
+            else if (item === 'eggs') eggs += d.quantity;
+            else if (item === 'cocoa') cocoa += d.quantity;
+          });
+
+          let mixingCap = (s.stations.mixing?.active ?? 2) * (s.stations.mixing?.capacityPerMachine ?? 54);
+          let bottlingCap = (s.stations.bottling?.active ?? 3) * (s.stations.bottling?.capacityPerMachine ?? 24);
+          let icingCap = (s.stations.icing?.active ?? 1) * (s.stations.icing?.capacityPerMachine ?? 55);
+          let packagingCap = (s.stations.packaging?.active ?? 1) * (s.stations.packaging?.capacityPerMachine ?? 216);
+
+          if (event?.type === 'machine_breakdown') {
+            const penaltyRatio = event.severity === 'low' ? 0.8 : event.severity === 'medium' ? 0.6 : 0.4;
+            mixingCap = Math.round(mixingCap * penaltyRatio);
+            bottlingCap = Math.round(bottlingCap * penaltyRatio);
+            icingCap = Math.round(icingCap * penaltyRatio);
+            packagingCap = Math.round(packagingCap * penaltyRatio);
+          }
+
+          const bottleneck = Math.min(mixingCap, bottlingCap, icingCap, packagingCap);
+          const matLimit = Math.min(flour, sugar, cocoa);
+          const produced = Math.min(bottleneck, matLimit);
+          flour -= produced;
+          sugar -= produced;
+          cocoa -= produced;
+          const productionCostThisTick = produced * PRODUCTION_COST;
+          let inventory = s.inventory + produced;
+
+          let rawMaterialPrice = RM_PRICE;
+          if (event?.type === 'material_shortage') {
+            rawMaterialPrice *= event.severity === 'low' ? 1.5 : event.severity === 'medium' ? 2.0 : 3.0;
+          }
+
+          let newDeliveries = [...stillPending];
+          let rawMatOrderCost = 0;
+          let ropFired = false;
+
+          const checkAndOrder = (stock: number, rop: number, qty: number, item: Delivery['item']) => {
+            const inFlight = newDeliveries
+              .filter(d => d.item === item || (!d.item && item === 'flour'))
+              .reduce((sum, d) => sum + d.quantity, 0);
+            if (stock + inFlight <= rop && qty > 0) {
+              newDeliveries.push({ roundArriving: s.tick + LEAD_TIME, quantity: qty, item });
+              rawMatOrderCost += qty * rawMaterialPrice + 100;
+              ropFired = true;
+            }
+          };
+
+          checkAndOrder(flour, s.flourROP, s.flourOrderQty, 'flour');
+          checkAndOrder(sugar, s.sugarROP, s.sugarOrderQty, 'sugar');
+          checkAndOrder(eggs, s.eggsROP, s.eggsOrderQty, 'eggs');
+          checkAndOrder(cocoa, s.cocoaROP, s.cocoaOrderQty, 'cocoa');
+
+          const updatedContracts = s.contracts.map(c => {
+            if (c.status === 'pending' && (s.tick + 1) >= c.appearsAtDay) {
+              return { ...c, status: 'offered' as const };
+            }
+            return c;
+          });
+
+          let contractRevenueThisTick = 0;
+          let totalContractDemanded = 0;
+          let totalContractDelivered = 0;
+
+          const activeContracts = updatedContracts.filter(
+            c => c.status === 'accepted' && s.tick >= c.beginsAtDay && s.tick <= c.endsAtDay
+          );
+          activeContracts.forEach(c => {
+            const demand = c.dailyDemand;
+            totalContractDemanded += demand;
+            const delivered = Math.min(inventory, demand);
+            inventory -= delivered;
+            contractRevenueThisTick += delivered * c.pricePerUnit;
+            totalContractDelivered += delivered;
+            c.deliveredCount += delivered;
+            c.demandedCount += demand;
+          });
+
+          let contractPenaltiesThisTick = 0;
+          const finalContracts = updatedContracts.map(c => {
+            if (c.status === 'accepted' && s.tick === c.endsAtDay) {
+              const fillRate = c.demandedCount > 0 ? (c.deliveredCount / c.demandedCount) : 0;
+              if (fillRate < c.fillRateRequired / 100) {
+                contractPenaltiesThisTick += c.fillRatePenalty;
+              }
+              return { ...c, status: 'finished' as const };
+            }
+            return c;
+          });
+
+          const calculatedDemands = calculateDemand(s.tick, 0, event);
+          const demand = calculatedDemands['standard'] || 100;
+          const sold = Math.min(inventory, demand);
+          const stockout = demand - sold;
+          inventory -= sold;
+
+          const salesRevenueThisTick = sold * SELLING_PRICE;
+          const backorderCost = stockout * BACKORDER_PENALTY;
+          const holdingCost = inventory * STORAGE_COST;
+          const totalActiveMachines =
+            (s.stations.mixing?.active ?? 0) + (s.stations.bottling?.active ?? 0) +
+            (s.stations.icing?.active ?? 0) + (s.stations.packaging?.active ?? 0);
+          const machineCostThisTick = totalActiveMachines * 50;
+
+          const totalCostsThisTick = productionCostThisTick + rawMatOrderCost + holdingCost + backorderCost + machineCostThisTick + contractPenaltiesThisTick;
+          const newSalesRevenue = s.salesRevenue + salesRevenueThisTick;
+          const newContractRevenue = s.contractRevenue + contractRevenueThisTick;
+          const newTotalCostsPaid = s.totalCostsPaid + totalCostsThisTick;
+          const totalCash = s.initialCash + newSalesRevenue + newContractRevenue - newTotalCostsPaid;
+
+          const totalDayDemanded = totalContractDemanded + demand;
+          const totalDayDelivered = totalContractDelivered + sold;
+          const serviceLevelIndex = totalDayDemanded > 0 ? (totalDayDelivered / totalDayDemanded) : 1;
+          const nextSatisfaction = Math.max(0, Math.min(100, Math.round((s.satisfaction * 0.9) + (serviceLevelIndex * 10))));
+
+          setGameState({
+            ...s,
+            balance: totalCash,
+            salesRevenue: newSalesRevenue,
+            contractRevenue: newContractRevenue,
+            totalCostsPaid: newTotalCostsPaid,
+            inventory,
+            flourStock: flour,
+            sugarStock: sugar,
+            eggsStock: eggs,
+            cocoaStock: cocoa,
+            deliveries: newDeliveries,
+            contracts: finalContracts,
+            tick: s.tick + 1,
+            lastDemand: demand,
+            lastSold: sold,
+            lastStockout: stockout,
+            lastRevenue: salesRevenueThisTick + contractRevenueThisTick,
+            satisfaction: nextSatisfaction,
+            ropFiredThisTick: ropFired
+          });
+
+          if (totalCash !== s.balance) {
+            setCashFlash(totalCash > s.balance ? 'gain' : 'loss');
+            setTimeout(() => setCashFlash(null), 600);
+          }
+
+          if (session.id && currentTeam.id) {
+            lastWrittenStateRef.current = {
+              balance: totalCash,
+              flourStock: flour,
+              sugarStock: sugar,
+              eggsStock: eggs,
+              cocoaStock: cocoa,
+              satisfaction: nextSatisfaction,
+              tick: s.tick + 1,
+            };
+
+            if (isDirectPlay) {
+              updateTeamState(currentTeam.id, {
+                balance: totalCash,
+                inventory: { standard: inventory },
+                flourStock: flour,
+                sugarStock: sugar,
+                eggsStock: eggs,
+                cocoaStock: cocoa,
+                deliveries: newDeliveries,
+                contracts: finalContracts,
+                salesRevenue: newSalesRevenue,
+                contractRevenue: newContractRevenue,
+                totalCostsPaid: newTotalCostsPaid,
+                tick: s.tick + 1,
+                satisfaction: nextSatisfaction,
+              });
+              updateSession({
+                currentRound: s.tick + 1,
+                status: (s.tick + 1) > 365 ? 'ended' : 'active'
+              });
+            } else {
+              setDoc(
+                doc(db, `sessions/${session.id}/teams/${currentTeam.id}`),
+                {
+                  balance: totalCash,
+                  inventory: { standard: inventory },
+                  flourStock: flour,
+                  sugarStock: sugar,
+                  eggsStock: eggs,
+                  cocoaStock: cocoa,
+                  deliveries: newDeliveries,
+                  contracts: finalContracts,
+                  salesRevenue: newSalesRevenue,
+                  contractRevenue: newContractRevenue,
+                  totalCostsPaid: newTotalCostsPaid,
+                  tick: s.tick + 1,
+                  satisfaction: nextSatisfaction,
+                  lastUpdated: serverTimestamp()
+                },
+                { merge: true }
+              ).catch(console.error);
+            }
+          }
+        } catch (err) {
+          console.error('Tick error:', err);
+        }
+      }, 20000);
+
+      return () => {
+        if (intervalRef.current) clearInterval(intervalRef.current);
+        clearInterval(tickTimerId);
+      };
+    } else {
+      if (intervalRef.current) clearInterval(intervalRef.current);
     }
-  }, [localRound]);
+  }, [gameRunning]);
 
   // Audio Context synth beep player
   const playBeep = (freq = 440, type: OscillatorType = 'sine', duration = 0.1) => {
@@ -593,29 +637,28 @@ export function StudentDashboard() {
 
   const handleApplyOrderChanges = async () => {
     playBeep(880, 'sine', 0.1);
+    // Update simulation state immediately — next tick uses new values
+    setGameState(prev => prev ? {
+      ...prev,
+      flourOrderQty: parseInt(String(flourQ), 10) || 0,
+      flourROP: parseInt(String(flourR), 10) || 0,
+      sugarOrderQty: parseInt(String(sugarQ), 10) || 0,
+      sugarROP: parseInt(String(sugarR), 10) || 0,
+      eggsOrderQty: parseInt(String(eggsQ), 10) || 0,
+      eggsROP: parseInt(String(eggsR), 10) || 0,
+      cocoaOrderQty: parseInt(String(cocoaQ), 10) || 0,
+      cocoaROP: parseInt(String(cocoaR), 10) || 0,
+    } : prev);
     try {
-      // Update localTeam immediately so the tick loop uses new values right away
-      setLocalTeam(prev => prev ? {
-        ...prev,
-        flourOrderQty: flourQ,
-        flourROP: flourR,
-        sugarOrderQty: sugarQ,
-        sugarROP: sugarR,
-        eggsOrderQty: eggsQ,
-        eggsROP: eggsR,
-        cocoaOrderQty: cocoaQ,
-        cocoaROP: cocoaR
-      } : prev);
-
       await updateProcurementSettingsEx({
-        flourQ: parseInt(String(flourQ), 10) || 0, 
+        flourQ: parseInt(String(flourQ), 10) || 0,
         flourR: parseInt(String(flourR), 10) || 0,
-        sugarQ: parseInt(String(sugarQ), 10) || 0, 
+        sugarQ: parseInt(String(sugarQ), 10) || 0,
         sugarR: parseInt(String(sugarR), 10) || 0,
-        eggsQ: parseInt(String(eggsQ), 10) || 0, 
+        eggsQ: parseInt(String(eggsQ), 10) || 0,
         eggsR: parseInt(String(eggsR), 10) || 0,
-        cocoaQ: parseInt(String(cocoaQ), 10) || 0, 
-        cocoaR: parseInt(String(cocoaR), 10) || 0
+        cocoaQ: parseInt(String(cocoaQ), 10) || 0,
+        cocoaR: parseInt(String(cocoaR), 10) || 0,
       });
       showToast("Order changes applied to pantry!");
     } catch (err) {
@@ -627,10 +670,9 @@ export function StudentDashboard() {
     playBeep(660, 'triangle', 0.1);
     try {
       if (!currentTeam?.id || !session?.id) return;
-
-      setLocalTeam(prev => {
+      setGameState(prev => {
         if (!prev) return prev;
-        const sts = prev.stations ? { ...prev.stations } : JSON.parse(JSON.stringify(DEFAULT_STATIONS));
+        const sts = { ...prev.stations };
         return {
           ...prev,
           stations: {
@@ -642,51 +684,38 @@ export function StudentDashboard() {
           }
         };
       });
-
       await updateActiveMachines('mixing', mixingRunning);
       await updateActiveMachines('bottling', bakingRunning);
       await updateActiveMachines('icing', icingRunning);
       await updateActiveMachines('packaging', packingRunning);
-
-      showToast("Operations applied! Floor speeds updated.");
+      showToast("Operations applied!");
     } catch (err) {
       showToast("Failed to update active machines.");
     }
   };
 
   const handleBuyMachineClick = async (stationId: 'mixing' | 'bottling' | 'icing' | 'packaging', name: string, price: number) => {
-    const teamToCheck = localTeam || currentTeam;
-    if (!teamToCheck) return;
-    if (teamToCheck.balance < price) {
+    if (!currentTeam) return;
+    const currentBalance = gameState?.balance ?? currentTeam.balance;
+    if (currentBalance < price) {
       playBeep(220, 'sawtooth', 0.2);
-      showToast(`Insufficient funds for ${name}! Costs ₹${price.toLocaleString()}.`);
+      showToast(`Insufficient funds! ${name} costs ₹${price.toLocaleString()}.`);
       return;
     }
-
     if (window.confirm(`Buy another ${name} for ₹${price.toLocaleString()}?`)) {
       playBeep(523, 'sine', 0.15);
       try {
         await buyMachine(stationId);
-
-        setLocalTeam(prev => {
+        setGameState(prev => {
           if (!prev) return prev;
-          const stations = prev.stations ? { ...prev.stations } : JSON.parse(JSON.stringify(DEFAULT_STATIONS));
-          const st = stations[stationId];
-          const updated = {
+          const sts = { ...prev.stations };
+          const st = sts[stationId];
+          return {
             ...prev,
             balance: prev.balance - price,
-            stations: {
-              ...stations,
-              [stationId]: { ...st, owned: (st.owned ?? 0) + 1, active: (st.active ?? 0) + 1 }
-            }
+            stations: { ...sts, [stationId]: { ...st, owned: (st.owned ?? 0) + 1, active: (st.active ?? 0) + 1 } }
           };
-          lastWrittenStateRef.current = {
-            ...lastWrittenStateRef.current,
-            balance: updated.balance
-          };
-          return updated;
         });
-
         showToast(`Purchased a new ${name}!`);
       } catch (e) {
         showToast("Error purchasing machine.");
@@ -2022,11 +2051,9 @@ export function StudentDashboard() {
                             onClick={async () => {
                               playBeep(523, 'sine', 0.1);
                               await acceptContract(c.id);
-                              setLocalTeam(prev => prev ? {
+                              setGameState(prev => prev ? {
                                 ...prev,
-                                contracts: (prev.contracts ?? []).map(ct =>
-                                  ct.id === c.id ? { ...ct, status: 'accepted' as const } : ct
-                                )
+                                contracts: prev.contracts.map(ct => ct.id === c.id ? { ...ct, status: 'accepted' as const } : ct)
                               } : prev);
                               showToast(`Accepted "${c.name}" contract!`);
                             }}
@@ -2060,12 +2087,10 @@ export function StudentDashboard() {
                               if (window.confirm(`Abort contract ${c.name}? Will incur exit penalty of ₹${c.exitPenalty.toLocaleString()}.`)) {
                                 playBeep(220, 'sawtooth', 0.15);
                                 await abortContract(c.id);
-                                setLocalTeam(prev => prev ? {
+                                setGameState(prev => prev ? {
                                   ...prev,
-                                  balance: Math.max(0, prev.balance - c.exitPenalty),
-                                  contracts: (prev.contracts ?? []).map(ct =>
-                                    ct.id === c.id ? { ...ct, status: 'aborted' as const } : ct
-                                  )
+                                  balance: Math.max(0, prev.balance - (c.exitPenalty ?? 0)),
+                                  contracts: prev.contracts.map(ct => ct.id === c.id ? { ...ct, status: 'aborted' as const } : ct)
                                 } : prev);
                                 showToast(`Aborted "${c.name}"!`);
                               }
