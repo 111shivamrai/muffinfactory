@@ -39,8 +39,8 @@ export function calculateDemand(
   return demand;
 }
 
-// Helper to seed standard contracts at key raw material milestones
-export function getInitialContracts(): Contract[] {
+// Full pool of all available contracts in the game
+export function getAllContractPool(): Contract[] {
   return [
     {
       id: 'valmart',
@@ -48,9 +48,9 @@ export function getInitialContracts(): Contract[] {
       appearsAtDay: 1,
       beginsAtDay: 4,
       endsAtDay: 11,
-      dailyDemand: 100,
-      pricePerUnit: 23,
-      fillRateRequired: 90,
+      dailyDemand: 80,
+      pricePerUnit: 22,
+      fillRateRequired: 85,
       fillRatePenalty: 500,
       exitPenalty: 5000,
       status: 'offered',
@@ -58,21 +58,156 @@ export function getInitialContracts(): Contract[] {
       demandedCount: 0
     },
     {
+      id: 'quickbite',
+      name: 'QuickBite',
+      appearsAtDay: 1,
+      beginsAtDay: 3,
+      endsAtDay: 8,
+      dailyDemand: 50,
+      pricePerUnit: 30,
+      fillRateRequired: 80,
+      fillRatePenalty: 300,
+      exitPenalty: 3000,
+      status: 'offered',
+      deliveredCount: 0,
+      demandedCount: 0
+    },
+    {
+      id: 'munchbox',
+      name: 'MunchBox',
+      appearsAtDay: 2,
+      beginsAtDay: 5,
+      endsAtDay: 14,
+      dailyDemand: 120,
+      pricePerUnit: 26,
+      fillRateRequired: 88,
+      fillRatePenalty: 600,
+      exitPenalty: 8000,
+      status: 'pending',
+      deliveredCount: 0,
+      demandedCount: 0
+    },
+    {
+      id: 'snackco',
+      name: 'SnackCo',
+      appearsAtDay: 2,
+      beginsAtDay: 6,
+      endsAtDay: 15,
+      dailyDemand: 150,
+      pricePerUnit: 28,
+      fillRateRequired: 88,
+      fillRatePenalty: 700,
+      exitPenalty: 10000,
+      status: 'pending',
+      deliveredCount: 0,
+      demandedCount: 0
+    },
+    {
+      id: 'freshmart',
+      name: 'FreshMart',
+      appearsAtDay: 3,
+      beginsAtDay: 8,
+      endsAtDay: 18,
+      dailyDemand: 200,
+      pricePerUnit: 32,
+      fillRateRequired: 90,
+      fillRatePenalty: 800,
+      exitPenalty: 15000,
+      status: 'pending',
+      deliveredCount: 0,
+      demandedCount: 0
+    },
+    {
+      id: 'premiumeats',
+      name: 'PremiumEats',
+      appearsAtDay: 4,
+      beginsAtDay: 10,
+      endsAtDay: 16,
+      dailyDemand: 90,
+      pricePerUnit: 50,
+      fillRateRequired: 92,
+      fillRatePenalty: 900,
+      exitPenalty: 12000,
+      status: 'pending',
+      deliveredCount: 0,
+      demandedCount: 0
+    },
+    {
       id: 'tresco',
       name: 'Tresco',
-      appearsAtDay: 4,
+      appearsAtDay: 5,
       beginsAtDay: 12,
       endsAtDay: 20,
-      dailyDemand: 350,
-      pricePerUnit: 40,
+      dailyDemand: 300,
+      pricePerUnit: 38,
       fillRateRequired: 95,
       fillRatePenalty: 1000,
       exitPenalty: 47500,
       status: 'pending',
       deliveredCount: 0,
       demandedCount: 0
+    },
+    {
+      id: 'megastore',
+      name: 'MegaStore',
+      appearsAtDay: 6,
+      beginsAtDay: 14,
+      endsAtDay: 22,
+      dailyDemand: 500,
+      pricePerUnit: 45,
+      fillRateRequired: 97,
+      fillRatePenalty: 2000,
+      exitPenalty: 75000,
+      status: 'pending',
+      deliveredCount: 0,
+      demandedCount: 0
     }
   ];
+}
+
+// Assigns a unique random subset of contracts to a student based on their ID
+// Same studentId always produces the same contract set (deterministic via seed)
+// Different studentIds always produce different contract sets
+export function getContractsForStudent(studentId: string): Contract[] {
+  // Deterministic seed from studentId so the same student always gets the same contracts
+  // even if they log out and back in
+  const seed = studentId.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+
+  const pool = getAllContractPool();
+
+  // Separate early contracts (appear day 1–2, good for onboarding) from later ones
+  const earlyContracts = pool.filter(c => c.appearsAtDay <= 2); // valmart, quickbite, munchbox, snackco
+  const lateContracts = pool.filter(c => c.appearsAtDay >= 3);  // freshmart, premiumeats, tresco, megastore
+
+  // Shuffle each group using the seed so different students get different picks
+  const shuffleDeterministic = (arr: Contract[], offset: number): Contract[] => {
+    return [...arr].sort((a, b) => {
+      const hashA = (seed + offset + a.id.charCodeAt(0)) % 7;
+      const hashB = (seed + offset + b.id.charCodeAt(0)) % 7;
+      return hashA - hashB;
+    });
+  };
+
+  const shuffledEarly = shuffleDeterministic(earlyContracts, 0);
+  const shuffledLate = shuffleDeterministic(lateContracts, 100);
+
+  // Each student gets:
+  // - 1 early contract (appears at start, already offered)
+  // - 1–2 late contracts (appear mid-game as pending)
+  const totalLateCount = (seed % 2 === 0) ? 2 : 1; // some students get 2 late, others get 1
+
+  const assigned = [
+    shuffledEarly[0],                          // 1 early contract
+    ...shuffledLate.slice(0, totalLateCount)   // 1 or 2 late contracts
+  ];
+
+  // Deep copy to ensure no shared state between students
+  return JSON.parse(JSON.stringify(assigned));
+}
+
+// Keep getInitialContracts as a fallback alias for direct play / legacy code
+export function getInitialContracts(): Contract[] {
+  return getContractsForStudent('default');
 }
 
 export function processDecision(

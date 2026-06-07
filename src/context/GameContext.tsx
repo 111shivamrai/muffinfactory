@@ -34,7 +34,7 @@ import {
 } from 'firebase/firestore';
 import { logSystemError } from '../utils/logger';
 import { Session, Team, Decision, RoundResult, GameStatus, INITIAL_VALUES, GameSettings, GameEvent, Product, SimulationParameters, DEFAULT_PARAMETERS, DEFAULT_STATIONS } from '../types';
-import { processDecision, getInitialContracts } from '../lib/gameLogic';
+import { processDecision, getInitialContracts, getContractsForStudent } from '../lib/gameLogic';
 
 // Helper to add timeout to any promise
 export const withTimeout = <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
@@ -671,7 +671,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
               reorderPoint: 500,
               stations: JSON.parse(JSON.stringify(DEFAULT_STATIONS)),
               deliveries: [],
-              contracts: getInitialContracts()
+              contracts: getContractsForStudent(loginId)
             });
           }
         } catch (e: any) { 
@@ -788,7 +788,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
               ready: false, joinedAt: new Date().toISOString(),
               orderQuantity: 2000, reorderPoint: 500,
               stations: JSON.parse(JSON.stringify(DEFAULT_STATIONS)),
-              deliveries: [], contracts: getInitialContracts()
+              deliveries: [], contracts: getContractsForStudent(loginId)
             });
           }
         } catch (e: any) { 
@@ -1094,7 +1094,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         reorderPoint: 500,
         stations: JSON.parse(JSON.stringify(DEFAULT_STATIONS)),
         deliveries: [],
-        contracts: getInitialContracts()
+        contracts: getContractsForStudent(baseUid)
       };
 
       await setDoc(doc(db, `sessions/${code}/teams`, baseUid), team);

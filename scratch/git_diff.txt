@@ -1,0 +1,461 @@
+diff --git a/src/components/StudentDashboard.tsx b/src/components/StudentDashboard.tsx
+index 55846cf..2c7c63d 100644
+--- a/src/components/StudentDashboard.tsx
++++ b/src/components/StudentDashboard.tsx
+@@ -28,7 +28,7 @@ import { db } from '../firebase';
+ import { doc, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+ import { AnimatedFactoryFloor } from "./AnimatedFactoryFloor";
+ import { getInitialContracts, calculateDemand, processDecision } from '../lib/gameLogic';
+-import { SodaBottlingGame } from './SodaBottlingGame';
++
+ 
+ // Helper animation components for counting up values smoothly
+ function AnimatedNumber({ value, formatter }: { value: number; formatter?: (v: number) => string }) {
+@@ -155,7 +155,6 @@ export function StudentDashboard() {
+ 
+   const [soundEnabled, setSoundEnabled] = useState(true);
+   const [showContractsModal, setShowContractsModal] = useState(false);
+-  const [showOvertimeModal, setShowOvertimeModal] = useState(false);
+   const [showHelpModal, setShowHelpModal] = useState(false);
+   const [countdown, setCountdown] = useState(20);
+   const lastWrittenStateRef = useRef<any>({});
+@@ -310,129 +309,39 @@ export function StudentDashboard() {
+     };
+   }, [currentTeam?.id]);
+ 
+-  // Sync remote changes (e.g. from instructor intervention or database initialization) back to localTeam
++  // Sync remote changes ONLY from instructor interventions (not from our own Firestore writes bouncing back)
+   useEffect(() => {
+-    if (!currentTeam || !localTeam) return;
+-    
+-    const lastWritten = lastWrittenStateRef.current;
+-    let needsUpdate = false;
+-    const nextState = { ...localTeam };
+-    
+-    if (lastWritten.balance === undefined || (currentTeam.balance !== lastWritten.balance && currentTeam.balance !== localTeam.balance)) {
+-      nextState.balance = currentTeam.balance;
+-      needsUpdate = true;
+-    }
+-    if (lastWritten.flourStock === undefined || (currentTeam.flourStock !== lastWritten.flourStock && currentTeam.flourStock !== localTeam.flourStock)) {
+-      nextState.flourStock = currentTeam.flourStock ?? nextState.flourStock;
+-      needsUpdate = true;
+-    }
+-    if (lastWritten.sugarStock === undefined || (currentTeam.sugarStock !== lastWritten.sugarStock && currentTeam.sugarStock !== localTeam.sugarStock)) {
+-      nextState.sugarStock = currentTeam.sugarStock ?? nextState.sugarStock;
+-      needsUpdate = true;
+-    }
+-    if (lastWritten.eggsStock === undefined || (currentTeam.eggsStock !== lastWritten.eggsStock && currentTeam.eggsStock !== localTeam.eggsStock)) {
+-      nextState.eggsStock = currentTeam.eggsStock ?? nextState.eggsStock;
+-      needsUpdate = true;
+-    }
+-    if (lastWritten.cocoaStock === undefined || (currentTeam.cocoaStock !== lastWritten.cocoaStock && currentTeam.cocoaStock !== localTeam.cocoaStock)) {
+-      nextState.cocoaStock = currentTeam.cocoaStock ?? nextState.cocoaStock;
+-      needsUpdate = true;
+-    }
+-    if (lastWritten.satisfaction === undefined || (currentTeam.satisfaction !== lastWritten.satisfaction && currentTeam.satisfaction !== localTeam.satisfaction)) {
+-      nextState.satisfaction = currentTeam.satisfaction ?? nextState.satisfaction;
+-      needsUpdate = true;
+-    }
+-    
+-    // Check if inputs (OrderQty and ROP) were changed externally (e.g., intervention)
+-    if (currentTeam.flourOrderQty !== undefined && currentTeam.flourOrderQty !== localTeam.flourOrderQty) {
+-      nextState.flourOrderQty = currentTeam.flourOrderQty;
+-      setFlourQ(currentTeam.flourOrderQty);
+-      needsUpdate = true;
+-    }
+-    if (currentTeam.flourROP !== undefined && currentTeam.flourROP !== localTeam.flourROP) {
+-      nextState.flourROP = currentTeam.flourROP;
+-      setFlourR(currentTeam.flourROP);
+-      needsUpdate = true;
+-    }
+-    if (currentTeam.sugarOrderQty !== undefined && currentTeam.sugarOrderQty !== localTeam.sugarOrderQty) {
+-      nextState.sugarOrderQty = currentTeam.sugarOrderQty;
+-      setSugarQ(currentTeam.sugarOrderQty);
+-      needsUpdate = true;
+-    }
+-    if (currentTeam.sugarROP !== undefined && currentTeam.sugarROP !== localTeam.sugarROP) {
+-      nextState.sugarROP = currentTeam.sugarROP;
+-      setSugarR(currentTeam.sugarROP);
+-      needsUpdate = true;
+-    }
+-    if (currentTeam.eggsOrderQty !== undefined && currentTeam.eggsOrderQty !== localTeam.eggsOrderQty) {
+-      nextState.eggsOrderQty = currentTeam.eggsOrderQty;
+-      setEggsQ(currentTeam.eggsOrderQty);
+-      needsUpdate = true;
+-    }
+-    if (currentTeam.eggsROP !== undefined && currentTeam.eggsROP !== localTeam.eggsROP) {
+-      nextState.eggsROP = currentTeam.eggsROP;
+-      setEggsR(currentTeam.eggsROP);
+-      needsUpdate = true;
+-    }
+-    if (currentTeam.cocoaOrderQty !== undefined && currentTeam.cocoaOrderQty !== localTeam.cocoaOrderQty) {
+-      nextState.cocoaOrderQty = currentTeam.cocoaOrderQty;
+-      setCocoaQ(currentTeam.cocoaOrderQty);
+-      needsUpdate = true;
+-    }
+-    if (currentTeam.cocoaROP !== undefined && currentTeam.cocoaROP !== localTeam.cocoaROP) {
+-      nextState.cocoaROP = currentTeam.cocoaROP;
+-      setCocoaR(currentTeam.cocoaROP);
+-      needsUpdate = true;
+-    }
+-
+-    if (currentTeam.stations && JSON.stringify(currentTeam.stations) !== JSON.stringify(localTeam.stations)) {
+-      nextState.stations = currentTeam.stations;
+-      if (currentTeam.stations.mixing) setMixingRunning(currentTeam.stations.mixing.active);
+-      if (currentTeam.stations.bottling) setBakingRunning(currentTeam.stations.bottling.active);
+-      if (currentTeam.stations.icing) setIcingRunning(currentTeam.stations.icing.active);
+-      if (currentTeam.stations.packaging) setPackingRunning(currentTeam.stations.packaging.active);
+-      needsUpdate = true;
+-    }
+-    if (currentTeam.contracts && JSON.stringify(currentTeam.contracts) !== JSON.stringify(localTeam.contracts)) {
+-      nextState.contracts = currentTeam.contracts;
+-      needsUpdate = true;
+-    }
+-    if (currentTeam.deliveries && JSON.stringify(currentTeam.deliveries) !== JSON.stringify(localTeam.deliveries)) {
+-      nextState.deliveries = currentTeam.deliveries;
+-      needsUpdate = true;
+-    }
+-
+-    if (needsUpdate) {
+-      setLocalTeam(nextState);
+-      lastWrittenStateRef.current = {
+-        ...lastWritten,
+-        balance: currentTeam.balance,
+-        flourStock: currentTeam.flourStock,
+-        sugarStock: currentTeam.sugarStock,
+-        eggsStock: currentTeam.eggsStock,
+-        cocoaStock: currentTeam.cocoaStock,
+-        satisfaction: currentTeam.satisfaction,
++    if (!currentTeam || !gameState) return;
++    const last = lastWrittenStateRef.current;
++    // If balance AND tick both match what we last wrote, this is our own write bouncing back — ignore it
++    if (last.balance !== undefined && currentTeam.balance === last.balance && (currentTeam as any).tick === last.tick) return;
++    // Otherwise it's an instructor intervention — apply it
++    setLocalTeam(prev => {
++      if (!prev) return prev;
++      return {
++        ...prev,
++        balance: currentTeam.balance ?? prev.balance,
++        initialCash: currentTeam.initialCash ?? prev.initialCash,
++        flourStock: currentTeam.flourStock ?? prev.flourStock,
++        sugarStock: currentTeam.sugarStock ?? prev.sugarStock,
++        eggsStock: currentTeam.eggsStock ?? prev.eggsStock,
++        cocoaStock: currentTeam.cocoaStock ?? prev.cocoaStock,
++        satisfaction: currentTeam.satisfaction ?? prev.satisfaction,
++        stations: currentTeam.stations ?? prev.stations,
++        contracts: currentTeam.contracts ?? prev.contracts,
++        deliveries: currentTeam.deliveries ?? prev.deliveries,
++        flourOrderQty: currentTeam.flourOrderQty ?? prev.flourOrderQty,
++        flourROP: currentTeam.flourROP ?? prev.flourROP,
++        sugarOrderQty: currentTeam.sugarOrderQty ?? prev.sugarOrderQty,
++        sugarROP: currentTeam.sugarROP ?? prev.sugarROP,
++        eggsOrderQty: currentTeam.eggsOrderQty ?? prev.eggsOrderQty,
++        eggsROP: currentTeam.eggsROP ?? prev.eggsROP,
++        cocoaOrderQty: currentTeam.cocoaOrderQty ?? prev.cocoaOrderQty,
++        cocoaROP: currentTeam.cocoaROP ?? prev.cocoaROP,
+       };
+-    }
+-  }, [
+-    currentTeam?.balance, 
+-    currentTeam?.flourStock, 
+-    currentTeam?.sugarStock, 
+-    currentTeam?.eggsStock, 
+-    currentTeam?.cocoaStock, 
+-    currentTeam?.satisfaction,
+-    currentTeam?.flourOrderQty,
+-    currentTeam?.flourROP,
+-    currentTeam?.sugarOrderQty,
+-    currentTeam?.sugarROP,
+-    currentTeam?.eggsOrderQty,
+-    currentTeam?.eggsROP,
+-    currentTeam?.cocoaOrderQty,
+-    currentTeam?.cocoaROP,
+-    currentTeam?.stations,
+-    currentTeam?.contracts,
+-    currentTeam?.deliveries
+-  ]);
++    });
++    lastWrittenStateRef.current = { balance: currentTeam.balance, tick: (currentTeam as any).tick };
++  }, [currentTeam?.balance, (currentTeam as any)?.tick]);
+ 
+   // Sync remote session currentRound back to localRound
+   useEffect(() => {
+@@ -576,19 +485,7 @@ export function StudentDashboard() {
+             result
+           ).catch(e => console.error('Result write failed:', e));
+ 
+-          if (isDirectPlay) {
+-            updateSession({ 
+-              currentRound: nextRound, 
+-              status: nextRound > (session.totalRounds || 365) ? 'ended' : 'active' 
+-            });
+-          } else {
+-            if (session.currentRound === undefined || nextRound > session.currentRound) {
+-              updateDoc(doc(db, 'sessions', session.id), {
+-                currentRound: nextRound,
+-                status: nextRound > (session.totalRounds || 365) ? 'ended' : 'active'
+-              }).catch(e => console.error('Session round update failed:', e));
+-            }
+-          }
++          // CHANGE 1: Deleted the session.currentRound write
+         }
+ 
+       } catch (err) {
+@@ -599,7 +496,7 @@ export function StudentDashboard() {
+     return () => {
+       if (tickIntervalRef.current) clearInterval(tickIntervalRef.current);
+     };
+-  }, [session?.status, session?.id, session?.settings?.roundDuration, !!localTeam]);
++  }, [session?.status, session?.settings?.roundDuration, !!localTeam]);
+ 
+   // ─── VISUAL COUNTDOWN TIMER ───
+   useEffect(() => {
+@@ -655,41 +552,7 @@ export function StudentDashboard() {
+     setTimeout(() => setToastMsg(null), 2500);
+   };
+ 
+-  const handleOvertimeReward = (addedCash: number, addedRM: number) => {
+-    setLocalTeam(prev => {
+-      if (!prev) return prev;
+-      const updated = {
+-        ...prev,
+-        balance: prev.balance + addedCash,
+-        flourStock: (prev.flourStock ?? 0) + Math.round(0.35 * addedRM),
+-        sugarStock: (prev.sugarStock ?? 0) + Math.round(0.25 * addedRM),
+-        eggsStock: (prev.eggsStock ?? 0) + Math.round(0.20 * addedRM),
+-        cocoaStock: (prev.cocoaStock ?? 0) + Math.round(0.20 * addedRM),
+-      };
+-
+-      lastWrittenStateRef.current = {
+-        ...lastWrittenStateRef.current,
+-        balance: updated.balance,
+-        flourStock: updated.flourStock,
+-        sugarStock: updated.sugarStock,
+-        eggsStock: updated.eggsStock,
+-        cocoaStock: updated.cocoaStock,
+-      };
+-
+-      if (!isDirectPlay && session?.id && currentTeam?.id) {
+-        updateDoc(doc(db, `sessions/${session.id}/teams`, currentTeam.id), {
+-          balance: updated.balance,
+-          flourStock: updated.flourStock,
+-          sugarStock: updated.sugarStock,
+-          eggsStock: updated.eggsStock,
+-          cocoaStock: updated.cocoaStock,
+-          rawMaterials: (currentTeam.rawMaterials || 0) + addedRM
+-        }).catch(console.error);
+-      }
+ 
+-      return updated;
+-    });
+-  };
+ 
+   const handleApplyOrderChanges = async () => {
+     playBeep(880, 'sine', 0.1);
+@@ -728,18 +591,17 @@ export function StudentDashboard() {
+     try {
+       if (!currentTeam?.id || !session?.id) return;
+ 
+-      // Update localTeam so tick loop uses new machine config immediately
+       setLocalTeam(prev => {
+         if (!prev) return prev;
+-        const stations = prev.stations ? { ...prev.stations } : JSON.parse(JSON.stringify(DEFAULT_STATIONS));
++        const sts = prev.stations ? { ...prev.stations } : JSON.parse(JSON.stringify(DEFAULT_STATIONS));
+         return {
+           ...prev,
+           stations: {
+-            ...stations,
+-            mixing: { ...stations.mixing, active: mixingRunning },
+-            bottling: { ...stations.bottling, active: bakingRunning },
+-            icing: { ...stations.icing, active: icingRunning },
+-            packaging: { ...stations.packaging, active: packingRunning }
++            ...sts,
++            mixing:    { ...sts.mixing,    active: mixingRunning },
++            bottling:  { ...sts.bottling,  active: bakingRunning },
++            icing:     { ...sts.icing,     active: icingRunning },
++            packaging: { ...sts.packaging, active: packingRunning }
+           }
+         };
+       });
+@@ -769,7 +631,6 @@ export function StudentDashboard() {
+       try {
+         await buyMachine(stationId);
+ 
+-        // Also update localTeam so the tick loop sees the new machine
+         setLocalTeam(prev => {
+           if (!prev) return prev;
+           const stations = prev.stations ? { ...prev.stations } : JSON.parse(JSON.stringify(DEFAULT_STATIONS));
+@@ -779,7 +640,7 @@ export function StudentDashboard() {
+             balance: prev.balance - price,
+             stations: {
+               ...stations,
+-              [stationId]: { ...st, owned: st.owned + 1, active: st.active + 1 }
++              [stationId]: { ...st, owned: (st.owned ?? 0) + 1, active: (st.active ?? 0) + 1 }
+             }
+           };
+           lastWrittenStateRef.current = {
+@@ -851,17 +712,17 @@ export function StudentDashboard() {
+   }
+ 
+   // Active Station Configuration variables
+-  const stations = activeTeam.stations || {
++  const stations = gameState?.stations ?? activeTeam.stations ?? {
+     mixing: { owned: 3, active: 2, capacityPerMachine: 24, purchasePrice: 20000 },
+     bottling: { owned: 3, active: 3, capacityPerMachine: 48, purchasePrice: 30000 },
+     icing: { owned: 2, active: 1, capacityPerMachine: 55, purchasePrice: 60000 },
+     packaging: { owned: 1, active: 1, capacityPerMachine: 72, purchasePrice: 100000 }
+   };
+ 
+-  const flourStock = activeTeam.flourStock ?? Math.round(0.35 * (activeTeam.rawMaterials || 0));
+-  const sugarStock = activeTeam.sugarStock ?? Math.round(0.25 * (activeTeam.rawMaterials || 0));
+-  const eggsStock = activeTeam.eggsStock ?? Math.round(0.20 * (activeTeam.rawMaterials || 0));
+-  const cocoaStock = activeTeam.cocoaStock ?? Math.round(0.20 * (activeTeam.rawMaterials || 0));
++  const flourStock = gameState?.flourStock ?? activeTeam.flourStock ?? Math.round(0.35 * (activeTeam.rawMaterials || 0));
++  const sugarStock = gameState?.sugarStock ?? activeTeam.sugarStock ?? Math.round(0.25 * (activeTeam.rawMaterials || 0));
++  const eggsStock = gameState?.eggsStock ?? activeTeam.eggsStock ?? Math.round(0.20 * (activeTeam.rawMaterials || 0));
++  const cocoaStock = gameState?.cocoaStock ?? activeTeam.cocoaStock ?? Math.round(0.20 * (activeTeam.rawMaterials || 0));
+ 
+   const mixingOwned = stations.mixing.owned;
+   const bakingOwned = stations.bottling.owned;
+@@ -1303,15 +1164,7 @@ export function StudentDashboard() {
+             <span className="text-[11px] font-black tracking-wider text-[#4a2c11]">Contracts</span>
+           </button>
+ 
+-          {/* Overtime Dash Trigger Button */}
+-          <button 
+-            onClick={() => { playBeep(440, 'sine', 0.05); setShowOvertimeModal(true); }}
+-            className="header-btn"
+-            style={{ backgroundColor: '#fdf2e9', borderColor: '#e65100', color: '#e65100' }}
+-          >
+-            <span className="text-xl">🎮</span>
+-            <span className="text-[11px] font-black tracking-wider">Overtime Dash</span>
+-          </button>
++
+ 
+           {/* Rank Pill */}
+           <div className="header-pill">
+@@ -1369,7 +1222,7 @@ export function StudentDashboard() {
+         <div className="space-y-3 flex flex-col h-full min-h-0">
+           
+           {/* Panel 1: Raw Material Management */}
+-          <div className="bg-white border-[3px] border-[#4a2c11] rounded-xl shadow-[0_3px_0_#4a2c11] overflow-hidden flex flex-col min-h-0 flex-[1.1]">
++          <div className="bg-white border-[3px] border-[#4a2c11] rounded-xl shadow-[0_3px_0_#4a2c11] overflow-hidden flex flex-col min-h-0 flex-1">
+             <div className="bg-[#89b873] muffin-card-header text-white" style={{ padding: '6px 12px', fontSize: '12px', borderBottomWidth: '3px' }}>
+               <span className="text-[11px] uppercase tracking-wider font-extrabold">Raw Material Management</span>
+               <span className="text-sm">🌾</span>
+@@ -1395,7 +1248,7 @@ export function StudentDashboard() {
+                   {/* Flour */}
+                   <tr>
+                     <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11] whitespace-nowrap">
+-                      <span>🥖</span> Flour (Stock: {Math.round(gameState?.flourStock ?? flourStock)})
++                      <span>🥖</span> Flour: {Math.round(gameState?.flourStock ?? flourStock)}
+                     </td>
+                     <td className="py-[1px]">
+                       <div className="qty-control justify-center">
+@@ -1421,7 +1274,7 @@ export function StudentDashboard() {
+                   {/* Sugar */}
+                   <tr>
+                     <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11] whitespace-nowrap">
+-                      <span>🥣</span> Sugar (Stock: {Math.round(gameState?.sugarStock ?? sugarStock)})
++                      <span>🥣</span> Sugar: {Math.round(gameState?.sugarStock ?? sugarStock)}
+                     </td>
+                     <td className="py-[1px]">
+                       <div className="qty-control justify-center">
+@@ -1447,7 +1300,7 @@ export function StudentDashboard() {
+                   {/* Cocoa */}
+                   <tr>
+                     <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11] whitespace-nowrap">
+-                      <span>🫙</span> Cocoa (Stock: {Math.round(gameState?.cocoaStock ?? cocoaStock)})
++                      <span>🫙</span> Cocoa: {Math.round(gameState?.cocoaStock ?? cocoaStock)}
+                     </td>
+                     <td className="py-[1px]">
+                       <div className="qty-control justify-center">
+@@ -1497,11 +1350,11 @@ export function StudentDashboard() {
+               <div className="mt-1 pt-1 border-t border-[#4a2c11]/10">
+                 <span className="text-[9px] uppercase font-black tracking-wider text-[#8c7662] block mb-0.5">📦 Pending Shipments</span>
+                 {((gameState?.deliveries ?? activeTeam.deliveries ?? []).length === 0) ? (
+-                  <div className="py-8 text-center text-[#8a7360] font-black uppercase text-[10px] tracking-wider border-2 border-dashed border-[#e6ccb2] rounded-xl bg-[#fffbf7]/60">
++                  <div className="py-2 text-center text-[#8a7360] font-black uppercase text-[9px] tracking-wider border-2 border-dashed border-[#e6ccb2] rounded-xl bg-[#fffbf7]/60">
+                     🚚 No Incoming Shipments
+                   </div>
+                 ) : (
+-                  <div className="space-y-1.5 max-h-[160px] overflow-y-auto pr-1">
++                  <div className="space-y-1 max-h-[85px] overflow-y-auto pr-1">
+                     {(gameState?.deliveries ?? activeTeam.deliveries ?? []).map((d, idx) => {
+                       const ticksRemaining = Math.max(0, d.roundArriving - (gameState?.tick ?? 1));
+                       return (
+@@ -1757,20 +1610,7 @@ export function StudentDashboard() {
+             </div>
+           </div>
+ 
+-          {/* Overtime Mini-Game Card */}
+-          <div className="muffin-card animate-fade-in" style={{ border: '3px solid #4a2c11', borderRadius: '12px', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 4px 0 #4a2c11', marginBottom: 0, flex: 1.5, minHeight: 0 }}>
+-            <div style={{ backgroundColor: '#e91e63', borderBottom: '3px solid #4a2c11', padding: '6px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'white', fontWeight: 900, fontSize: '13px' }}>
+-              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+-                <span>🎮</span> OVERTIME BAKING DASH
+-              </span>
+-              <span style={{ fontSize: '10px', fontFamily: 'monospace' }}>PLAY MINI-GAME</span>
+-            </div>
+-            <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
+-              <SodaBottlingGame 
+-                onReward={handleOvertimeReward}
+-              />
+-            </div>
+-          </div>
++
+ 
+           {/* Revenue Card */}
+           <div className="muffin-card" style={{ border: '3px solid #4a2c11', borderRadius: '12px', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 4px 0 #4a2c11', marginBottom: 0, flexShrink: 0 }}>
+@@ -2102,24 +1942,7 @@ export function StudentDashboard() {
+           </div>
+         </div>
+       </main>
+-      {/* ─── Overtime Baking Dash Mini-Game Modal ─── */}
+-      <AnimatePresence>
+-        {showOvertimeModal && (
+-          <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center z-[150] p-4">
+-            <motion.div 
+-              initial={{ scale: 0.95, opacity: 0 }}
+-              animate={{ scale: 1, opacity: 1 }}
+-              exit={{ scale: 0.95, opacity: 0 }}
+-              className="bg-[#0c0c1a] border-4 border-[#4a2c11] max-w-4xl w-full p-2 shadow-2xl relative rounded-2xl"
+-            >
+-              <SodaBottlingGame 
+-                onReward={handleOvertimeReward}
+-                onClose={() => setShowOvertimeModal(false)}
+-              />
+-            </motion.div>
+-          </div>
+-        )}
+-      </AnimatePresence>
++
+ 
+       {/* ─── Offered & Active Contracts Modal ─── */}
+       <AnimatePresence>
+@@ -2162,6 +1985,12 @@ export function StudentDashboard() {
+                             onClick={async () => {
+                               playBeep(523, 'sine', 0.1);
+                               await acceptContract(c.id);
++                              setLocalTeam(prev => prev ? {
++                                ...prev,
++                                contracts: (prev.contracts ?? []).map(ct =>
++                                  ct.id === c.id ? { ...ct, status: 'accepted' as const } : ct
++                                )
++                              } : prev);
+                               showToast(`Accepted "${c.name}" contract!`);
+                             }}
+                             className="bg-[#89b873] hover:bg-[#78a562] text-white border-2 border-[#4a2c11] shadow-[0_2px_0_#4a2c11] px-3 py-1 rounded font-black uppercase tracking-wider text-[9px] active:translate-y-0.5"
+@@ -2194,6 +2023,13 @@ export function StudentDashboard() {
+                               if (window.confirm(`Abort contract ${c.name}? Will incur exit penalty of ₹${c.exitPenalty.toLocaleString()}.`)) {
+                                 playBeep(220, 'sawtooth', 0.15);
+                                 await abortContract(c.id);
++                                setLocalTeam(prev => prev ? {
++                                  ...prev,
++                                  balance: Math.max(0, prev.balance - c.exitPenalty),
++                                  contracts: (prev.contracts ?? []).map(ct =>
++                                    ct.id === c.id ? { ...ct, status: 'aborted' as const } : ct
++                                  )
++                                } : prev);
+                                 showToast(`Aborted "${c.name}"!`);
+                               }
+                             }}

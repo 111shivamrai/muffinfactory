@@ -27,8 +27,8 @@ import { RoundResult, Contract, DEFAULT_STATIONS, Delivery, INITIAL_VALUES, DEFA
 import { db } from '../firebase';
 import { doc, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { AnimatedFactoryFloor } from "./AnimatedFactoryFloor";
-import { getInitialContracts, calculateDemand } from '../lib/gameLogic';
-import { SodaBottlingGame } from './SodaBottlingGame';
+import { getInitialContracts, calculateDemand, processDecision } from '../lib/gameLogic';
+
 
 // Helper animation components for counting up values smoothly
 function AnimatedNumber({ value, formatter }: { value: number; formatter?: (v: number) => string }) {
@@ -155,7 +155,6 @@ export function StudentDashboard() {
 
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [showContractsModal, setShowContractsModal] = useState(false);
-  const [showOvertimeModal, setShowOvertimeModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [countdown, setCountdown] = useState(20);
   const lastWrittenStateRef = useRef<any>({});
@@ -170,34 +169,82 @@ export function StudentDashboard() {
   }, [session?.status]);
 
   // ─── LOCAL GAME LOOP STATE ───
-  const [gameState, setGameState] = useState<LocalGameState | null>(null);
-  const stateRef = useRef<LocalGameState | null>(null);
-  useEffect(() => {
-    stateRef.current = gameState;
-  }, [gameState]);
-  const [gameRunning, setGameRunning] = useState(false);
-  const intervalRef = useRef<any>(null);
   const [cashFlash, setCashFlash] = useState<'gain' | 'loss' | null>(null);
 
   // Track previous balance to determine cash flow direction (incoming/outgoing)
   const prevBalanceRef = useRef<number | null>(null);
   const [balanceChange, setBalanceChange] = useState<'increase' | 'decrease' | 'none'>('none');
 
+  const tickIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const localTeamRef = useRef<typeof currentTeam | null>(null);
+  const localRoundRef = useRef<number>(1);
+  const [localTeam, setLocalTeam] = useState<typeof currentTeam | null>(null);
+  const [localRound, setLocalRound] = useState(1);
+  const [tickLog, setTickLog] = useState<string[]>([]);
+
+  // Round results summary
+  const lastResult = results && results.length > 0 ? results[results.length - 1] : null;
+
+  const activeTeam = localTeam ?? currentTeam;
+  const gameState = activeTeam ? {
+    balance: activeTeam.balance,
+    initialCash: activeTeam.initialCash ?? activeTeam.balance,
+    salesRevenue: (activeTeam as any).salesRevenue ?? 0,
+    contractRevenue: (activeTeam as any).contractRevenue ?? 0,
+    totalCostsPaid: (activeTeam as any).totalCostsPaid ?? 0,
+    inventory: activeTeam.inventory?.standard ?? 0,
+    flourStock: activeTeam.flourStock ?? 0,
+    sugarStock: activeTeam.sugarStock ?? 0,
+    eggsStock: activeTeam.eggsStock ?? 0,
+    cocoaStock: activeTeam.cocoaStock ?? 0,
+    deliveries: activeTeam.deliveries ?? [],
+    contracts: activeTeam.contracts ?? [],
+    stations: activeTeam.stations ?? DEFAULT_STATIONS,
+    flourOrderQty: activeTeam.flourOrderQty ?? 2000,
+    flourROP: activeTeam.flourROP ?? 500,
+    sugarOrderQty: activeTeam.sugarOrderQty ?? 1500,
+    sugarROP: activeTeam.sugarROP ?? 400,
+    eggsOrderQty: activeTeam.eggsOrderQty ?? 1200,
+    eggsROP: activeTeam.eggsROP ?? 300,
+    cocoaOrderQty: activeTeam.cocoaOrderQty ?? 800,
+    cocoaROP: activeTeam.cocoaROP ?? 200,
+    tick: localRound,
+    lastDemand: lastResult ? (lastResult.soldQty?.standard || 0) + (lastResult.missedDemand?.standard || 0) : 0,
+    lastSold: lastResult ? (lastResult.soldQty?.standard || 0) : 0,
+    lastStockout: lastResult ? (lastResult.missedDemand?.standard || 0) : 0,
+    lastRevenue: lastResult ? lastResult.revenue : 0,
+    satisfaction: activeTeam.satisfaction ?? 100,
+    ropFiredThisTick: false,
+  } : null;
+
   useEffect(() => {
-    if (!gameState) return;
-    const curr = gameState.balance;
+    if (!localTeam) return;
+    const curr = localTeam.balance;
     if (prevBalanceRef.current !== null) {
       const prev = prevBalanceRef.current;
-      if (curr > prev) {
-        setBalanceChange('increase');
-      } else if (curr < prev) {
-        setBalanceChange('decrease');
-      } else {
-        setBalanceChange('none');
-      }
+      if (curr > prev) setBalanceChange('increase');
+      else if (curr < prev) setBalanceChange('decrease');
+      else setBalanceChange('none');
     }
     prevBalanceRef.current = curr;
-  }, [gameState?.balance]);
+  }, [localTeam?.balance]);
+
+  useEffect(() => {
+    if (!currentTeam || localTeam) return; // only initialize once
+    setLocalTeam(currentTeam);
+    localTeamRef.current = currentTeam;
+    const round = session?.currentRound ?? 1;
+    setLocalRound(round);
+    localRoundRef.current = round;
+  }, [currentTeam?.id]);
+
+  useEffect(() => {
+    localTeamRef.current = localTeam;
+  }, [localTeam]);
+
+  useEffect(() => {
+    localRoundRef.current = localRound;
+  }, [localRound]);
 
   // Raw Material Local Inputs (committed on Apply)
   const [flourQ, setFlourQ] = useState(2000);
@@ -217,6 +264,7 @@ export function StudentDashboard() {
 
   // Sync inputs from database updates
   useEffect(() => {
+    if (localTeam) return; // Don't override local state once simulation is running
     if (currentTeam) {
       setFlourQ(currentTeam.flourOrderQty ?? 2000);
       setFlourR(currentTeam.flourROP ?? 500);
@@ -234,488 +282,250 @@ export function StudentDashboard() {
         setPackingRunning(currentTeam.stations.packaging?.active ?? 1);
       }
     }
-  }, [currentTeam]);
+  }, [currentTeam?.id]);
 
-  // Initialize gameState from Firestore on mount
+  // Initialize local state from Firestore data ONCE
   useEffect(() => {
-    if (!currentTeam || gameState) return;
+    if (!currentTeam || localTeam) return; // only initialize once
+    setLocalTeam(currentTeam);
+    localTeamRef.current = currentTeam;
+    const round = session?.currentRound ?? 1;
+    setLocalRound(round);
+    localRoundRef.current = round;
     
+    // Set initial lastWritten values
     const initialFlour = currentTeam.flourStock ?? Math.round(0.35 * (currentTeam.rawMaterials || 0));
     const initialSugar = currentTeam.sugarStock ?? Math.round(0.25 * (currentTeam.rawMaterials || 0));
     const initialEggs = currentTeam.eggsStock ?? Math.round(0.20 * (currentTeam.rawMaterials || 0));
     const initialCocoa = currentTeam.cocoaStock ?? Math.round(0.20 * (currentTeam.rawMaterials || 0));
-
-    const initialState: LocalGameState = {
-      balance: currentTeam.balance ?? INITIAL_VALUES.BALANCE,
-      initialCash: currentTeam.initialCash ?? currentTeam.balance ?? INITIAL_VALUES.BALANCE,
-      salesRevenue: currentTeam.salesRevenue ?? 0,
-      contractRevenue: currentTeam.contractRevenue ?? 0,
-      totalCostsPaid: currentTeam.totalCostsPaid ?? 0,
-      inventory: currentTeam.inventory?.standard ?? 0,
+    lastWrittenStateRef.current = {
+      balance: currentTeam.balance,
       flourStock: initialFlour,
       sugarStock: initialSugar,
       eggsStock: initialEggs,
       cocoaStock: initialCocoa,
-      deliveries: currentTeam.deliveries ?? [],
-      contracts: currentTeam.contracts ?? getInitialContracts(),
-      stations: currentTeam.stations ?? JSON.parse(JSON.stringify(DEFAULT_STATIONS)),
-      flourOrderQty: currentTeam.flourOrderQty ?? 2000,
-      flourROP: currentTeam.flourROP ?? 500,
-      sugarOrderQty: currentTeam.sugarOrderQty ?? 1500,
-      sugarROP: currentTeam.sugarROP ?? 400,
-      eggsOrderQty: currentTeam.eggsOrderQty ?? 1200,
-      eggsROP: currentTeam.eggsROP ?? 300,
-      cocoaOrderQty: currentTeam.cocoaOrderQty ?? 800,
-      cocoaROP: currentTeam.cocoaROP ?? 200,
-      tick: currentTeam.tick ?? session?.currentRound ?? 1,
-      lastDemand: 0,
-      lastSold: 0,
-      lastStockout: 0,
-      lastRevenue: 0,
       satisfaction: currentTeam.satisfaction ?? 100,
-      ropFiredThisTick: false
-    };
-
-    setGameState(initialState);
-    lastWrittenStateRef.current = {
-      balance: initialState.balance,
-      flourStock: initialState.flourStock,
-      sugarStock: initialState.sugarStock,
-      eggsStock: initialState.eggsStock,
-      cocoaStock: initialState.cocoaStock,
-      satisfaction: initialState.satisfaction,
-      tick: initialState.tick,
+      tick: round,
     };
   }, [currentTeam?.id]);
 
-  // Start/stop game loop based on session status
-  useEffect(() => {
-    if (session?.status === 'active' && gameState) {
-      setGameRunning(true);
-    } else {
-      setGameRunning(false);
-    }
-  }, [session?.status, !!gameState]);
-
-  // Sync remote changes (e.g. from instructor intervention or database initialization) back to local gameState
+  // Sync remote changes ONLY from instructor interventions (not from our own Firestore writes bouncing back)
   useEffect(() => {
     if (!currentTeam || !gameState) return;
-    
-    const lastWritten = lastWrittenStateRef.current;
-    let needsUpdate = false;
-    const nextState = { ...gameState };
-    
-    if (lastWritten.balance === undefined || (currentTeam.balance !== lastWritten.balance && currentTeam.balance !== gameState.balance)) {
-      nextState.balance = currentTeam.balance;
-      nextState.initialCash = currentTeam.initialCash ?? currentTeam.balance;
-      needsUpdate = true;
-    }
-    if (lastWritten.flourStock === undefined || (currentTeam.flourStock !== lastWritten.flourStock && currentTeam.flourStock !== gameState.flourStock)) {
-      nextState.flourStock = currentTeam.flourStock ?? nextState.flourStock;
-      needsUpdate = true;
-    }
-    if (lastWritten.sugarStock === undefined || (currentTeam.sugarStock !== lastWritten.sugarStock && currentTeam.sugarStock !== gameState.sugarStock)) {
-      nextState.sugarStock = currentTeam.sugarStock ?? nextState.sugarStock;
-      needsUpdate = true;
-    }
-    if (lastWritten.eggsStock === undefined || (currentTeam.eggsStock !== lastWritten.eggsStock && currentTeam.eggsStock !== gameState.eggsStock)) {
-      nextState.eggsStock = currentTeam.eggsStock ?? nextState.eggsStock;
-      needsUpdate = true;
-    }
-    if (lastWritten.cocoaStock === undefined || (currentTeam.cocoaStock !== lastWritten.cocoaStock && currentTeam.cocoaStock !== gameState.cocoaStock)) {
-      nextState.cocoaStock = currentTeam.cocoaStock ?? nextState.cocoaStock;
-      needsUpdate = true;
-    }
-    if (lastWritten.satisfaction === undefined || (currentTeam.satisfaction !== lastWritten.satisfaction && currentTeam.satisfaction !== gameState.satisfaction)) {
-      nextState.satisfaction = currentTeam.satisfaction ?? nextState.satisfaction;
-      needsUpdate = true;
-    }
-    if (lastWritten.tick === undefined || (currentTeam.tick !== lastWritten.tick && currentTeam.tick !== gameState.tick)) {
-      nextState.tick = currentTeam.tick ?? nextState.tick;
-      needsUpdate = true;
-    }
-    
-    // Check if inputs (OrderQty and ROP) were changed externally (e.g., intervention)
-    if (currentTeam.flourOrderQty !== undefined && currentTeam.flourOrderQty !== gameState.flourOrderQty) {
-      nextState.flourOrderQty = currentTeam.flourOrderQty;
-      needsUpdate = true;
-    }
-    if (currentTeam.flourROP !== undefined && currentTeam.flourROP !== gameState.flourROP) {
-      nextState.flourROP = currentTeam.flourROP;
-      needsUpdate = true;
-    }
-    if (currentTeam.sugarOrderQty !== undefined && currentTeam.sugarOrderQty !== gameState.sugarOrderQty) {
-      nextState.sugarOrderQty = currentTeam.sugarOrderQty;
-      needsUpdate = true;
-    }
-    if (currentTeam.sugarROP !== undefined && currentTeam.sugarROP !== gameState.sugarROP) {
-      nextState.sugarROP = currentTeam.sugarROP;
-      needsUpdate = true;
-    }
-    if (currentTeam.eggsOrderQty !== undefined && currentTeam.eggsOrderQty !== gameState.eggsOrderQty) {
-      nextState.eggsOrderQty = currentTeam.eggsOrderQty;
-      needsUpdate = true;
-    }
-    if (currentTeam.eggsROP !== undefined && currentTeam.eggsROP !== gameState.eggsROP) {
-      nextState.eggsROP = currentTeam.eggsROP;
-      needsUpdate = true;
-    }
-    if (currentTeam.cocoaOrderQty !== undefined && currentTeam.cocoaOrderQty !== gameState.cocoaOrderQty) {
-      nextState.cocoaOrderQty = currentTeam.cocoaOrderQty;
-      needsUpdate = true;
-    }
-    if (currentTeam.cocoaROP !== undefined && currentTeam.cocoaROP !== gameState.cocoaROP) {
-      nextState.cocoaROP = currentTeam.cocoaROP;
-      needsUpdate = true;
-    }
-
-    if (needsUpdate) {
-      setGameState(nextState);
-      lastWrittenStateRef.current = {
-        ...lastWritten,
-        balance: currentTeam.balance,
-        flourStock: currentTeam.flourStock,
-        sugarStock: currentTeam.sugarStock,
-        eggsStock: currentTeam.eggsStock,
-        cocoaStock: currentTeam.cocoaStock,
-        satisfaction: currentTeam.satisfaction,
-        tick: currentTeam.tick,
-      };
-    }
-  }, [
-    currentTeam?.balance, 
-    currentTeam?.flourStock, 
-    currentTeam?.sugarStock, 
-    currentTeam?.eggsStock, 
-    currentTeam?.cocoaStock, 
-    currentTeam?.satisfaction,
-    currentTeam?.tick,
-    currentTeam?.flourOrderQty,
-    currentTeam?.flourROP,
-    currentTeam?.sugarOrderQty,
-    currentTeam?.sugarROP,
-    currentTeam?.eggsOrderQty,
-    currentTeam?.eggsROP,
-    currentTeam?.cocoaOrderQty,
-    currentTeam?.cocoaROP
-  ]);
-
-  // Reset countdown to 20 whenever the day (tick) advances
-  useEffect(() => {
-    if (gameState?.tick) {
-      setCountdown(20);
-    }
-  }, [gameState?.tick]);
-
-  // Sync session active settings / db modifications back to gameState
-  useEffect(() => {
-    if (!currentTeam || !gameState) return;
-    setGameState(prev => {
+    const last = lastWrittenStateRef.current;
+    // If balance AND tick both match what we last wrote, this is our own write bouncing back — ignore it
+    if (last.balance !== undefined && currentTeam.balance === last.balance && (currentTeam as any).tick === last.tick) return;
+    // Otherwise it's an instructor intervention — apply it
+    setLocalTeam(prev => {
       if (!prev) return prev;
       return {
         ...prev,
+        balance: currentTeam.balance ?? prev.balance,
+        initialCash: currentTeam.initialCash ?? prev.initialCash,
+        flourStock: currentTeam.flourStock ?? prev.flourStock,
+        sugarStock: currentTeam.sugarStock ?? prev.sugarStock,
+        eggsStock: currentTeam.eggsStock ?? prev.eggsStock,
+        cocoaStock: currentTeam.cocoaStock ?? prev.cocoaStock,
+        satisfaction: currentTeam.satisfaction ?? prev.satisfaction,
         stations: currentTeam.stations ?? prev.stations,
         contracts: currentTeam.contracts ?? prev.contracts,
         deliveries: currentTeam.deliveries ?? prev.deliveries,
+        flourOrderQty: currentTeam.flourOrderQty ?? prev.flourOrderQty,
+        flourROP: currentTeam.flourROP ?? prev.flourROP,
+        sugarOrderQty: currentTeam.sugarOrderQty ?? prev.sugarOrderQty,
+        sugarROP: currentTeam.sugarROP ?? prev.sugarROP,
+        eggsOrderQty: currentTeam.eggsOrderQty ?? prev.eggsOrderQty,
+        eggsROP: currentTeam.eggsROP ?? prev.eggsROP,
+        cocoaOrderQty: currentTeam.cocoaOrderQty ?? prev.cocoaOrderQty,
+        cocoaROP: currentTeam.cocoaROP ?? prev.cocoaROP,
       };
     });
-  }, [currentTeam?.stations, currentTeam?.contracts, currentTeam?.deliveries]);
+    lastWrittenStateRef.current = { balance: currentTeam.balance, tick: (currentTeam as any).tick };
+  }, [currentTeam?.balance, (currentTeam as any)?.tick]);
 
-  // ─── UNIFIED LOCAL GAME LOOP & COUNTDOWN TIMER (1 DAY = 20 SECONDS) ───
-  const runLocalTick = () => {
-    try {
-      const s = stateRef.current;
-      if (!s) return;
+  // Sync remote session currentRound back to localRound
+  useEffect(() => {
+    if (session?.currentRound && session.currentRound !== localRound) {
+      setLocalRound(session.currentRound);
+      localRoundRef.current = session.currentRound;
+    }
+  }, [session?.currentRound]);
 
-      // Check end condition: 365 days
-      if (s.tick >= 365) {
-        setGameRunning(false);
-        setDismissEndedModal(false);
-        if (session?.id && currentTeam?.id) {
-          if (isDirectPlay) {
-            updateSession({ status: 'ended' });
-          } else {
-            updateDoc(doc(db, `sessions/${session.id}/teams/${currentTeam.id}`), {
-              status: 'ended'
-            }).catch(console.error);
-          }
+  // ─── UNIFIED LOCAL GAME LOOP & COUNTDOWN TIMER (Soda Pop Style) ───
+  useEffect(() => {
+    // Only run if session is active and we have local team state initialized
+    if (session?.status !== 'active' || !localTeam) return;
+
+    const tickDurationMs = Math.max(2000, (session?.settings?.roundDuration ?? 15) * 1000);
+
+    tickIntervalRef.current = setInterval(async () => {
+      try {
+        const team = localTeamRef.current;
+        const round = localRoundRef.current;
+        if (!team || !session) return;
+
+        // Check end condition: 365 days
+        if (round > 365) {
+          if (tickIntervalRef.current) clearInterval(tickIntervalRef.current);
+          return;
         }
-        return;
-      }
 
-      const params = session?.settings?.parameters ?? DEFAULT_PARAMETERS;
-      const LEAD_TIME = params.baseLeadTime ?? 1;
-      const RM_PRICE = params.rawMaterialUnitPrice ?? 8;
-      const STORAGE_COST = params.storageCost ?? 1;
-      const SELLING_PRICE = params.products?.[0]?.sellingPrice ?? 20;
-      const PRODUCTION_COST = params.products?.[0]?.productionCost ?? 2;
-      const BACKORDER_PENALTY = params.backorderPenalty ?? 2;
-
-      const event = session?.activeEvent;
-
-      // ── 1. Deliveries arrive ──
-      const arriving = s.deliveries.filter(d => d.roundArriving <= s.tick);
-      const stillPending = s.deliveries.filter(d => d.roundArriving > s.tick);
-
-      let flour = s.flourStock;
-      let sugar = s.sugarStock;
-      let eggs = s.eggsStock;
-      let cocoa = s.cocoaStock;
-
-      arriving.forEach(d => {
-        const item = d.item || 'flour';
-        if (item === 'flour') flour += d.quantity;
-        else if (item === 'sugar') sugar += d.quantity;
-        else if (item === 'eggs') eggs += d.quantity;
-        else if (item === 'cocoa') cocoa += d.quantity;
-      });
-
-      // ── 2. Production ──
-      let mixingCap = (s.stations.mixing?.active ?? 2) * (s.stations.mixing?.capacityPerMachine ?? 54);
-      let bottlingCap = (s.stations.bottling?.active ?? 3) * (s.stations.bottling?.capacityPerMachine ?? 24);
-      let icingCap = (s.stations.icing?.active ?? 1) * (s.stations.icing?.capacityPerMachine ?? 55);
-      let packagingCap = (s.stations.packaging?.active ?? 1) * (s.stations.packaging?.capacityPerMachine ?? 216);
-
-      if (event?.type === 'machine_breakdown') {
-        const penaltyRatio = event.severity === 'low' ? 0.8 : event.severity === 'medium' ? 0.6 : 0.4;
-        mixingCap = Math.round(mixingCap * penaltyRatio);
-        bottlingCap = Math.round(bottlingCap * penaltyRatio);
-        icingCap = Math.round(icingCap * penaltyRatio);
-        packagingCap = Math.round(packagingCap * penaltyRatio);
-      }
-
-      const bottleneck = Math.min(mixingCap, bottlingCap, icingCap, packagingCap);
-      const matLimit = Math.min(flour, sugar, cocoa);
-      const produced = Math.min(bottleneck, matLimit);
-
-      flour -= produced;
-      sugar -= produced;
-      cocoa -= produced;
-      const productionCostThisTick = produced * PRODUCTION_COST;
-
-      let inventory = s.inventory + produced;
-
-      // ── 3. ROP checks ──
-      let newDeliveries = [...stillPending];
-      let rawMaterialPrice = RM_PRICE;
-      if (event?.type === 'material_shortage') {
-        if (event.severity === 'low') rawMaterialPrice *= 1.5;
-        if (event.severity === 'medium') rawMaterialPrice *= 2.0;
-        if (event.severity === 'high') rawMaterialPrice *= 3.0;
-      }
-
-      let rawMatOrderCost = 0;
-      let ropFired = false;
-
-      const checkAndOrder = (
-        stock: number, rop: number, qty: number, item: Delivery['item']
-      ) => {
-        const inFlight = newDeliveries
-          .filter(d => d.item === item || (!d.item && item === 'flour'))
-          .reduce((sum, d) => sum + d.quantity, 0);
-        if (stock + inFlight <= rop && qty > 0) {
-          newDeliveries.push({ roundArriving: s.tick + LEAD_TIME, quantity: qty, item });
-          rawMatOrderCost += qty * rawMaterialPrice + 100;
-          ropFired = true;
-        }
-      };
-
-      checkAndOrder(flour, s.flourROP, s.flourOrderQty, 'flour');
-      checkAndOrder(sugar, s.sugarROP, s.sugarOrderQty, 'sugar');
-      checkAndOrder(eggs, s.eggsROP, s.eggsOrderQty, 'eggs');
-      checkAndOrder(cocoa, s.cocoaROP, s.cocoaOrderQty, 'cocoa');
-
-      // ── 4. Contracts ──
-      const updatedContracts = s.contracts.map(c => {
-        if (c.status === 'pending' && (s.tick + 1) >= c.appearsAtDay) {
-          return { ...c, status: 'offered' as const };
-        }
-        return c;
-      });
-
-      let contractRevenueThisTick = 0;
-      let totalContractDemanded = 0;
-      let totalContractDelivered = 0;
-
-      const activeContracts = updatedContracts.filter(
-        c => c.status === 'accepted' && s.tick >= c.beginsAtDay && s.tick <= c.endsAtDay
-      );
-      activeContracts.forEach(c => {
-        const demand = c.dailyDemand;
-        totalContractDemanded += demand;
-        const delivered = Math.min(inventory, demand);
-        inventory -= delivered;
-        contractRevenueThisTick += delivered * c.pricePerUnit;
-        totalContractDelivered += delivered;
-        c.deliveredCount += delivered;
-        c.demandedCount += demand;
-      });
-
-      // Contract Expiries & compliance penalties
-      let contractPenaltiesThisTick = 0;
-      const finalContracts = updatedContracts.map(c => {
-        if (c.status === 'accepted' && s.tick === c.endsAtDay) {
-          const fillRate = c.demandedCount > 0 ? (c.deliveredCount / c.demandedCount) : 0;
-          const targetRequired = c.fillRateRequired / 100;
-          if (fillRate < targetRequired) {
-            contractPenaltiesThisTick += c.fillRatePenalty;
-          }
-          return { ...c, status: 'finished' as const };
-        }
-        return c;
-      });
-
-      // ── 5. Retail demand ──
-      const calculatedDemands = calculateDemand(s.tick, 0, event);
-      const demand = calculatedDemands['standard'] || 100;
-      const sold = Math.min(inventory, demand);
-      const stockout = demand - sold;
-      inventory -= sold;
-
-      const salesRevenueThisTick = sold * SELLING_PRICE;
-      const backorderCost = stockout * BACKORDER_PENALTY;
-
-      // ── 6. Holding cost ──
-      const holdingCost = inventory * STORAGE_COST;
-
-      // ── 7. Machine fixed cost ──
-      const totalActiveMachines =
-        (s.stations.mixing?.active ?? 0) +
-        (s.stations.bottling?.active ?? 0) +
-        (s.stations.icing?.active ?? 0) +
-        (s.stations.packaging?.active ?? 0);
-      const machineCostThisTick = totalActiveMachines * 50;
-
-      // ── 8. Compute Total Cash ──
-      const totalCostsThisTick = productionCostThisTick + rawMatOrderCost + holdingCost + backorderCost + machineCostThisTick + contractPenaltiesThisTick;
-      const newSalesRevenue = s.salesRevenue + salesRevenueThisTick;
-      const newContractRevenue = s.contractRevenue + contractRevenueThisTick;
-      const newTotalCostsPaid = s.totalCostsPaid + totalCostsThisTick;
-      const totalCash = s.initialCash + newSalesRevenue + newContractRevenue - newTotalCostsPaid;
-
-      // Service Level Rating update
-      const totalDayDemanded = totalContractDemanded + demand;
-      const totalDayDelivered = totalContractDelivered + sold;
-      const serviceLevelIndex = totalDayDemanded > 0 ? (totalDayDelivered / totalDayDemanded) : 1;
-      const nextSatisfaction = Math.max(0, Math.min(100, Math.round((s.satisfaction * 0.9) + (serviceLevelIndex * 10))));
-
-
-
-      // ── 10. Set ALL state in ONE call ──
-      const newState: LocalGameState = {
-        ...s,
-        balance: totalCash,
-        salesRevenue: newSalesRevenue,
-        contractRevenue: newContractRevenue,
-        totalCostsPaid: newTotalCostsPaid,
-        inventory,
-        flourStock: flour,
-        sugarStock: sugar,
-        eggsStock: eggs,
-        cocoaStock: cocoa,
-        deliveries: newDeliveries,
-        contracts: finalContracts,
-        tick: s.tick + 1,
-        lastDemand: demand,
-        lastSold: sold,
-        lastStockout: stockout,
-        lastRevenue: salesRevenueThisTick + contractRevenueThisTick,
-        satisfaction: nextSatisfaction,
-        ropFiredThisTick: ropFired
-      };
-
-      setGameState(newState);
-
-      // ── 11. Flash animation ──
-      if (totalCash !== s.balance) {
-        setCashFlash(totalCash > s.balance ? 'gain' : 'loss');
-        setTimeout(() => setCashFlash(null), 600);
-      }
-
-      // ── 12. Write to Firestore / Context (non-blocking side effect) ──
-      if (session?.id && currentTeam?.id) {
-        lastWrittenStateRef.current = {
-          balance: totalCash,
-          flourStock: flour,
-          sugarStock: sugar,
-          eggsStock: eggs,
-          cocoaStock: cocoa,
-          satisfaction: nextSatisfaction,
+        // Build a dummy decision — ROP/Q policy runs automatically inside processDecision
+        const dummyDecision = {
+          id: `r${round}`,
+          sessionId: team.sessionId,
+          teamId: team.id,
+          round,
+          productionQty: { standard: 0 },
+          rawMaterialOrder: 0,
+          marketingSpend: 0,
+          submittedAt: new Date().toISOString()
         };
 
-        if (isDirectPlay) {
-          updateTeamState(currentTeam.id, {
-            balance: totalCash,
-            inventory: { standard: inventory },
-            flourStock: flour,
-            sugarStock: sugar,
-            eggsStock: eggs,
-            cocoaStock: cocoa,
-            deliveries: newDeliveries,
-            contracts: finalContracts,
-            salesRevenue: newSalesRevenue,
-            contractRevenue: newContractRevenue,
-            totalCostsPaid: newTotalCostsPaid,
-            tick: s.tick + 1,
-            satisfaction: nextSatisfaction,
-          });
-          updateSession({
-            currentRound: s.tick + 1,
-            status: (s.tick + 1) > 365 ? 'ended' : 'active'
-          });
-        } else {
+        const params = session?.settings?.parameters ?? DEFAULT_PARAMETERS;
+        const capacity = session?.settings?.capacity ?? 72;
+
+        const { updatedTeam, result } = processDecision(
+          team,
+          dummyDecision,
+          round,
+          [],
+          capacity,
+          session?.activeEvent ?? null,
+          params
+        );
+
+        const nextRound = round + 1;
+
+        // Calculate sales/contract revenue splits and opex
+        const salesRev = (team as any).salesRevenue || 0;
+        const contractRev = (team as any).contractRevenue || 0;
+        const costsPaid = (team as any).totalCostsPaid || 0;
+
+        let roundContractRevenue = 0;
+        (updatedTeam.contracts || []).forEach((c, idx) => {
+          const prevC = (team.contracts || [])[idx];
+          if (prevC && c.status === 'accepted') {
+            const diffDelivered = c.deliveredCount - prevC.deliveredCount;
+            if (diffDelivered > 0) {
+              roundContractRevenue += diffDelivered * c.pricePerUnit;
+            }
+          }
+        });
+        const roundSalesRevenue = result.revenue - roundContractRevenue;
+        
+        const nextSalesRevenue = salesRev + roundSalesRevenue;
+        const nextContractRevenue = contractRev + roundContractRevenue;
+        const nextTotalCostsPaid = costsPaid + (result.revenue - result.profit);
+
+        const teamWithStats = {
+          ...updatedTeam,
+          salesRevenue: nextSalesRevenue,
+          contractRevenue: nextContractRevenue,
+          totalCostsPaid: nextTotalCostsPaid,
+          tick: nextRound
+        };
+
+        // Update local state immediately — this drives ALL UI re-renders
+        setLocalTeam(teamWithStats);
+        setLocalRound(nextRound);
+        localTeamRef.current = teamWithStats;
+        localRoundRef.current = nextRound;
+
+        lastWrittenStateRef.current = {
+          balance: teamWithStats.balance,
+          flourStock: teamWithStats.flourStock,
+          sugarStock: teamWithStats.sugarStock,
+          eggsStock: teamWithStats.eggsStock,
+          cocoaStock: teamWithStats.cocoaStock,
+          satisfaction: teamWithStats.satisfaction,
+          tick: nextRound,
+        };
+
+        // Update activity log
+        const logEntry = `Round ${round}: Revenue ₹${result.revenue.toLocaleString()} | Profit ₹${result.profit.toFixed(0)} | Stock ${updatedTeam.inventory?.standard ?? 0}`;
+        setTickLog(prev => [logEntry, ...prev].slice(0, 10));
+
+        // Write to Firestore as a NON-BLOCKING side effect
+        if (session?.id && team?.id) {
           setDoc(
-            doc(db, `sessions/${session.id}/teams/${currentTeam.id}`),
+            doc(db, `sessions/${session.id}/teams/${team.id}`),
             {
-              balance: totalCash,
-              inventory: { standard: inventory },
-              flourStock: flour,
-              sugarStock: sugar,
-              eggsStock: eggs,
-              cocoaStock: cocoa,
-              deliveries: newDeliveries,
-              contracts: finalContracts,
-              salesRevenue: newSalesRevenue,
-              contractRevenue: newContractRevenue,
-              totalCostsPaid: newTotalCostsPaid,
-              tick: s.tick + 1,
-              satisfaction: nextSatisfaction,
-              lastUpdated: serverTimestamp()
+              balance: teamWithStats.balance,
+              inventory: teamWithStats.inventory,
+              rawMaterials: teamWithStats.rawMaterials,
+              flourStock: teamWithStats.flourStock,
+              sugarStock: teamWithStats.sugarStock,
+              eggsStock: teamWithStats.eggsStock,
+              cocoaStock: teamWithStats.cocoaStock,
+              satisfaction: teamWithStats.satisfaction,
+              deliveries: teamWithStats.deliveries,
+              contracts: teamWithStats.contracts,
+              stations: teamWithStats.stations,
+              flourOrderQty: teamWithStats.flourOrderQty,
+              flourROP: teamWithStats.flourROP,
+              sugarOrderQty: teamWithStats.sugarOrderQty,
+              sugarROP: teamWithStats.sugarROP,
+              eggsOrderQty: teamWithStats.eggsOrderQty,
+              eggsROP: teamWithStats.eggsROP,
+              cocoaOrderQty: teamWithStats.cocoaOrderQty,
+              cocoaROP: teamWithStats.cocoaROP,
+              salesRevenue: nextSalesRevenue,
+              contractRevenue: nextContractRevenue,
+              totalCostsPaid: nextTotalCostsPaid,
+              tick: nextRound,
+              lastTickAt: serverTimestamp()
             },
             { merge: true }
-          ).catch(console.error);
+          ).catch(e => console.error('Tick Firestore write failed:', e));
 
-          if (session && (s.tick + 1) > session.currentRound) {
-            updateDoc(doc(db, 'sessions', session.id), {
-              currentRound: s.tick + 1,
-              status: (s.tick + 1) > (session.totalRounds || 365) ? 'ended' : 'active'
-            }).catch(console.error);
-          }
+          // Also save this round result
+          setDoc(
+            doc(db, `sessions/${session.id}/teams/${team.id}/results`, `r${round}`),
+            result
+          ).catch(e => console.error('Result write failed:', e));
+
+          // CHANGE 1: Deleted the session.currentRound write
         }
+
+      } catch (err) {
+        console.error('StudentDashboard tick error:', err);
       }
+    }, tickDurationMs);
 
-    } catch (err) {
-      console.error('Tick error:', err);
-    }
-  };
+    return () => {
+      if (tickIntervalRef.current) clearInterval(tickIntervalRef.current);
+    };
+  }, [session?.status, session?.settings?.roundDuration, !!localTeam]);
 
+  // ─── VISUAL COUNTDOWN TIMER ───
   useEffect(() => {
-    if (!gameRunning) return;
+    if (session?.status !== 'active' || !localTeam) {
+      setCountdown(session?.settings?.roundDuration ?? 15);
+      return;
+    }
 
-    setCountdown(20);
+    const duration = session?.settings?.roundDuration ?? 15;
+    setCountdown(duration);
 
     const timerId = setInterval(() => {
       setCountdown(prev => {
         if (prev <= 1) {
-          runLocalTick();
-          return 20;
+          return duration;
         }
         return prev - 1;
       });
     }, 1000);
 
     return () => clearInterval(timerId);
-  }, [gameRunning, session?.id, currentTeam?.id]);
+  }, [session?.status, session?.settings?.roundDuration, !!localTeam]);
+
+  // Reset countdown to the full duration whenever the day advances locally
+  useEffect(() => {
+    if (localRound) {
+      setCountdown(session?.settings?.roundDuration ?? 15);
+    }
+  }, [localRound, session?.settings?.roundDuration]);
 
   // Audio Context synth beep player
   const playBeep = (freq = 440, type: OscillatorType = 'sine', duration = 0.1) => {
@@ -742,47 +552,24 @@ export function StudentDashboard() {
     setTimeout(() => setToastMsg(null), 2500);
   };
 
-  const handleOvertimeReward = (addedCash: number, addedRM: number) => {
-    setGameState(prev => {
-      if (!prev) return prev;
-      const updated = {
-        ...prev,
-        balance: prev.balance + addedCash,
-        flourStock: prev.flourStock + Math.round(0.35 * addedRM),
-        sugarStock: prev.sugarStock + Math.round(0.25 * addedRM),
-        eggsStock: prev.eggsStock + Math.round(0.20 * addedRM),
-        cocoaStock: prev.cocoaStock + Math.round(0.20 * addedRM),
-      };
 
-      if (!isDirectPlay && session?.id && currentTeam?.id) {
-        updateDoc(doc(db, `sessions/${session.id}/teams`, currentTeam.id), {
-          balance: updated.balance,
-          flourStock: updated.flourStock,
-          sugarStock: updated.sugarStock,
-          eggsStock: updated.eggsStock,
-          cocoaStock: updated.cocoaStock,
-          rawMaterials: (currentTeam.rawMaterials || 0) + addedRM
-        }).catch(console.error);
-      }
-
-      return updated;
-    });
-  };
 
   const handleApplyOrderChanges = async () => {
     playBeep(880, 'sine', 0.1);
-    setGameState(prev => prev ? {
-      ...prev,
-      flourOrderQty: flourQ,
-      flourROP: flourR,
-      sugarOrderQty: sugarQ,
-      sugarROP: sugarR,
-      eggsOrderQty: eggsQ,
-      eggsROP: eggsR,
-      cocoaOrderQty: cocoaQ,
-      cocoaROP: cocoaR
-    } : prev);
     try {
+      // Update localTeam immediately so the tick loop uses new values right away
+      setLocalTeam(prev => prev ? {
+        ...prev,
+        flourOrderQty: flourQ,
+        flourROP: flourR,
+        sugarOrderQty: sugarQ,
+        sugarROP: sugarR,
+        eggsOrderQty: eggsQ,
+        eggsROP: eggsR,
+        cocoaOrderQty: cocoaQ,
+        cocoaROP: cocoaR
+      } : prev);
+
       await updateProcurementSettingsEx({
         flourQ: parseInt(String(flourQ), 10) || 0, 
         flourR: parseInt(String(flourR), 10) || 0,
@@ -803,12 +590,27 @@ export function StudentDashboard() {
     playBeep(660, 'triangle', 0.1);
     try {
       if (!currentTeam?.id || !session?.id) return;
-      
+
+      setLocalTeam(prev => {
+        if (!prev) return prev;
+        const sts = prev.stations ? { ...prev.stations } : JSON.parse(JSON.stringify(DEFAULT_STATIONS));
+        return {
+          ...prev,
+          stations: {
+            ...sts,
+            mixing:    { ...sts.mixing,    active: mixingRunning },
+            bottling:  { ...sts.bottling,  active: bakingRunning },
+            icing:     { ...sts.icing,     active: icingRunning },
+            packaging: { ...sts.packaging, active: packingRunning }
+          }
+        };
+      });
+
       await updateActiveMachines('mixing', mixingRunning);
       await updateActiveMachines('bottling', bakingRunning);
       await updateActiveMachines('icing', icingRunning);
       await updateActiveMachines('packaging', packingRunning);
-      
+
       showToast("Operations applied! Floor speeds updated.");
     } catch (err) {
       showToast("Failed to update active machines.");
@@ -816,18 +618,38 @@ export function StudentDashboard() {
   };
 
   const handleBuyMachineClick = async (stationId: 'mixing' | 'bottling' | 'icing' | 'packaging', name: string, price: number) => {
-    if (!currentTeam) return;
-    const currentBalance = gameState?.balance ?? currentTeam.balance;
-    if (currentBalance < price) {
+    const teamToCheck = localTeam || currentTeam;
+    if (!teamToCheck) return;
+    if (teamToCheck.balance < price) {
       playBeep(220, 'sawtooth', 0.2);
       showToast(`Insufficient funds for ${name}! Costs ₹${price.toLocaleString()}.`);
       return;
     }
-    
+
     if (window.confirm(`Buy another ${name} for ₹${price.toLocaleString()}?`)) {
       playBeep(523, 'sine', 0.15);
       try {
         await buyMachine(stationId);
+
+        setLocalTeam(prev => {
+          if (!prev) return prev;
+          const stations = prev.stations ? { ...prev.stations } : JSON.parse(JSON.stringify(DEFAULT_STATIONS));
+          const st = stations[stationId];
+          const updated = {
+            ...prev,
+            balance: prev.balance - price,
+            stations: {
+              ...stations,
+              [stationId]: { ...st, owned: (st.owned ?? 0) + 1, active: (st.active ?? 0) + 1 }
+            }
+          };
+          lastWrittenStateRef.current = {
+            ...lastWrittenStateRef.current,
+            balance: updated.balance
+          };
+          return updated;
+        });
+
         showToast(`Purchased a new ${name}!`);
       } catch (e) {
         showToast("Error purchasing machine.");
@@ -860,7 +682,7 @@ export function StudentDashboard() {
           <div className="my-6 p-4 bg-[#fff9c4]/50 border-2 border-dashed border-[#4a2c11] rounded-xl text-left space-y-2">
             <div className="flex justify-between text-xs">
               <span className="font-bold text-[#8c7662]">TEAM NAME:</span>
-              <span className="font-black text-emerald-700 uppercase">{currentTeam.name}</span>
+              <span className="font-black text-emerald-700 uppercase">{activeTeam.name}</span>
             </div>
             <div className="flex justify-between text-xs">
               <span className="font-bold text-[#8c7662]">SESSION ID:</span>
@@ -868,7 +690,7 @@ export function StudentDashboard() {
             </div>
             <div className="flex justify-between text-xs">
               <span className="font-bold text-[#8c7662]">STARTING TOTAL CASH:</span>
-              <span className="font-black text-indigo-700">₹{currentTeam.balance.toLocaleString()}</span>
+              <span className="font-black text-indigo-700">₹{activeTeam.balance.toLocaleString()}</span>
             </div>
           </div>
           
@@ -890,17 +712,17 @@ export function StudentDashboard() {
   }
 
   // Active Station Configuration variables
-  const stations = currentTeam.stations || {
+  const stations = gameState?.stations ?? activeTeam.stations ?? {
     mixing: { owned: 3, active: 2, capacityPerMachine: 24, purchasePrice: 20000 },
     bottling: { owned: 3, active: 3, capacityPerMachine: 48, purchasePrice: 30000 },
     icing: { owned: 2, active: 1, capacityPerMachine: 55, purchasePrice: 60000 },
     packaging: { owned: 1, active: 1, capacityPerMachine: 72, purchasePrice: 100000 }
   };
 
-  const flourStock = currentTeam.flourStock ?? Math.round(0.35 * (currentTeam.rawMaterials || 0));
-  const sugarStock = currentTeam.sugarStock ?? Math.round(0.25 * (currentTeam.rawMaterials || 0));
-  const eggsStock = currentTeam.eggsStock ?? Math.round(0.20 * (currentTeam.rawMaterials || 0));
-  const cocoaStock = currentTeam.cocoaStock ?? Math.round(0.20 * (currentTeam.rawMaterials || 0));
+  const flourStock = gameState?.flourStock ?? activeTeam.flourStock ?? Math.round(0.35 * (activeTeam.rawMaterials || 0));
+  const sugarStock = gameState?.sugarStock ?? activeTeam.sugarStock ?? Math.round(0.25 * (activeTeam.rawMaterials || 0));
+  const eggsStock = gameState?.eggsStock ?? activeTeam.eggsStock ?? Math.round(0.20 * (activeTeam.rawMaterials || 0));
+  const cocoaStock = gameState?.cocoaStock ?? activeTeam.cocoaStock ?? Math.round(0.20 * (activeTeam.rawMaterials || 0));
 
   const mixingOwned = stations.mixing.owned;
   const bakingOwned = stations.bottling.owned;
@@ -929,7 +751,7 @@ export function StudentDashboard() {
 
   // Calculate Rank among all teams
   const sortedTeams = [...allTeams].sort((a, b) => b.balance - a.balance);
-  const teamRank = sortedTeams.findIndex(t => t.name === currentTeam.name) + 1;
+  const teamRank = sortedTeams.findIndex(t => t.name === activeTeam.name) + 1;
 
   // Lead time calculations
   const defaultLeadTime = session.settings?.roundDuration ? 1.2 : 1.2;
@@ -937,13 +759,11 @@ export function StudentDashboard() {
   // Conveyor belt animation speed
   const conveyorSpeed = isAnyStationOffline ? 0 : Math.max(3, 8 - (mixingRunning + bakingRunning + icingRunning + packingRunning));
 
-  // Round results summary
-  const lastResult = results && results.length > 0 ? results[results.length - 1] : null;
   const retailSold = lastResult ? (lastResult.soldQty?.standard || 0) : 0;
   const retailMissed = lastResult ? (lastResult.missedDemand?.standard || 0) : 0;
   const totalRetailDemand = retailSold + retailMissed;
   
-  const fillRate = gameState?.satisfaction ?? currentTeam.satisfaction ?? 100;
+  const fillRate = gameState?.satisfaction ?? activeTeam.satisfaction ?? 100;
   const revenueToday = lastResult ? lastResult.revenue : 0;
 
   return (
@@ -979,15 +799,15 @@ export function StudentDashboard() {
               <div className="bg-[#ffeef2] border-3 border-[#4a2c11] p-4 rounded-xl text-left space-y-2.5 font-mono text-xs text-[#4a2c11] font-bold">
                 <div className="flex justify-between border-b border-[#4a2c11]/10 pb-1.5">
                   <span>TEAM:</span>
-                  <span className="uppercase text-emerald-800">{currentTeam.name}</span>
+                  <span className="uppercase text-emerald-800">{activeTeam.name}</span>
                 </div>
                 <div className="flex justify-between border-b border-[#4a2c11]/10 pb-1.5">
                   <span>FINAL CORPORATE VALUE:</span>
-                  <span className="text-indigo-800">₹{(gameState?.balance ?? currentTeam.balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  <span className="text-indigo-800">₹{(gameState?.balance ?? activeTeam.balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>FINAL SCORE RATING:</span>
-                  <span>{gameState?.satisfaction ?? currentTeam.satisfaction}% Rating</span>
+                  <span>{gameState?.satisfaction ?? activeTeam.satisfaction}% Rating</span>
                 </div>
               </div>
               <p className="text-xs text-[#8c7662] uppercase tracking-wider leading-relaxed">
@@ -1303,7 +1123,7 @@ export function StudentDashboard() {
             <span className="text-xl">💵</span>
             <div className="flex flex-col text-left leading-none">
               <span className="text-[8px] font-bold text-[#8c7662] uppercase tracking-wider">Total Cash</span>
-              <span className="text-[12px] font-black text-[#4a2c11] mt-0.5">₹{(gameState?.balance ?? currentTeam.balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              <span className="text-[12px] font-black text-[#4a2c11] mt-0.5">₹{(gameState?.balance ?? activeTeam.balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             </div>
           </div>
 
@@ -1344,15 +1164,7 @@ export function StudentDashboard() {
             <span className="text-[11px] font-black tracking-wider text-[#4a2c11]">Contracts</span>
           </button>
 
-          {/* Overtime Dash Trigger Button */}
-          <button 
-            onClick={() => { playBeep(440, 'sine', 0.05); setShowOvertimeModal(true); }}
-            className="header-btn"
-            style={{ backgroundColor: '#fdf2e9', borderColor: '#e65100', color: '#e65100' }}
-          >
-            <span className="text-xl">🎮</span>
-            <span className="text-[11px] font-black tracking-wider">Overtime Dash</span>
-          </button>
+
 
           {/* Rank Pill */}
           <div className="header-pill">
@@ -1368,7 +1180,7 @@ export function StudentDashboard() {
             <span className="text-xl">👨‍🍳</span>
             <div className="flex flex-col text-left leading-none">
               <span className="text-[8px] font-bold text-[#8c7662] uppercase tracking-wider">Team</span>
-              <span className="text-[11px] font-black text-[#4a2c11] uppercase truncate max-w-[120px] mt-0.5">{currentTeam.name}</span>
+              <span className="text-[11px] font-black text-[#4a2c11] uppercase truncate max-w-[120px] mt-0.5">{activeTeam.name}</span>
             </div>
           </div>
 
@@ -1410,7 +1222,7 @@ export function StudentDashboard() {
         <div className="space-y-3 flex flex-col h-full min-h-0">
           
           {/* Panel 1: Raw Material Management */}
-          <div className="bg-white border-[3px] border-[#4a2c11] rounded-xl shadow-[0_3px_0_#4a2c11] overflow-hidden flex flex-col min-h-0 flex-[1.1]">
+          <div className="bg-white border-[3px] border-[#4a2c11] rounded-xl shadow-[0_3px_0_#4a2c11] overflow-hidden flex flex-col min-h-0 flex-1">
             <div className="bg-[#89b873] muffin-card-header text-white" style={{ padding: '6px 12px', fontSize: '12px', borderBottomWidth: '3px' }}>
               <span className="text-[11px] uppercase tracking-wider font-extrabold">Raw Material Management</span>
               <span className="text-sm">🌾</span>
@@ -1436,7 +1248,7 @@ export function StudentDashboard() {
                   {/* Flour */}
                   <tr>
                     <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11] whitespace-nowrap">
-                      <span>🥖</span> Flour (Stock: {Math.round(gameState?.flourStock ?? flourStock)})
+                      <span>🥖</span> Flour: {Math.round(gameState?.flourStock ?? flourStock)}
                     </td>
                     <td className="py-[1px]">
                       <div className="qty-control justify-center">
@@ -1462,7 +1274,7 @@ export function StudentDashboard() {
                   {/* Sugar */}
                   <tr>
                     <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11] whitespace-nowrap">
-                      <span>🥣</span> Sugar (Stock: {Math.round(gameState?.sugarStock ?? sugarStock)})
+                      <span>🥣</span> Sugar: {Math.round(gameState?.sugarStock ?? sugarStock)}
                     </td>
                     <td className="py-[1px]">
                       <div className="qty-control justify-center">
@@ -1488,7 +1300,7 @@ export function StudentDashboard() {
                   {/* Cocoa */}
                   <tr>
                     <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11] whitespace-nowrap">
-                      <span>🫙</span> Cocoa (Stock: {Math.round(gameState?.cocoaStock ?? cocoaStock)})
+                      <span>🫙</span> Cocoa: {Math.round(gameState?.cocoaStock ?? cocoaStock)}
                     </td>
                     <td className="py-[1px]">
                       <div className="qty-control justify-center">
@@ -1537,11 +1349,13 @@ export function StudentDashboard() {
               {/* Pending Shipments */}
               <div className="mt-1 pt-1 border-t border-[#4a2c11]/10">
                 <span className="text-[9px] uppercase font-black tracking-wider text-[#8c7662] block mb-0.5">📦 Pending Shipments</span>
-                {((gameState?.deliveries ?? currentTeam.deliveries ?? []).length === 0) ? (
-                  <div className="text-[9px] italic text-[#8c7662] text-center py-0.5">No orders in transit.</div>
+                {((gameState?.deliveries ?? activeTeam.deliveries ?? []).length === 0) ? (
+                  <div className="py-2 text-center text-[#8a7360] font-black uppercase text-[9px] tracking-wider border-2 border-dashed border-[#e6ccb2] rounded-xl bg-[#fffbf7]/60">
+                    🚚 No Incoming Shipments
+                  </div>
                 ) : (
-                  <div className="flex flex-wrap gap-1">
-                    {(gameState?.deliveries ?? currentTeam.deliveries ?? []).map((d, idx) => {
+                  <div className="space-y-1 max-h-[85px] overflow-y-auto pr-1">
+                    {(gameState?.deliveries ?? activeTeam.deliveries ?? []).map((d, idx) => {
                       const ticksRemaining = Math.max(0, d.roundArriving - (gameState?.tick ?? 1));
                       return (
                         <div key={idx} className="text-[8.5px] bg-[#f1ebd9] border border-[#4a2c11] rounded px-1 py-0.25 font-mono text-[#4a2c11] flex items-center gap-1 font-bold">
@@ -1796,6 +1610,8 @@ export function StudentDashboard() {
             </div>
           </div>
 
+
+
           {/* Revenue Card */}
           <div className="muffin-card" style={{ border: '3px solid #4a2c11', borderRadius: '12px', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 4px 0 #4a2c11', marginBottom: 0, flexShrink: 0 }}>
             {/* Bottom Card block: REVENUE Card Container */}
@@ -1835,16 +1651,17 @@ export function StudentDashboard() {
                     {/* Finished Goods Inventory Progress Bar */}
                     <div className="mt-2 pt-1 border-t border-[#4a2c11]/10">
                       <span className="revenue-card-title" style={{ fontSize: '9px', color: '#8c7662', textTransform: 'uppercase', fontWeight: 800, display: 'block' }}>Finished Goods Stock</span>
+                      <span className="revenue-card-val" style={{ fontSize: '20px', fontWeight: 900, color: '#4a2c11', display: 'block', marginTop: '2px' }}>
+                        <AnimatedNumber value={gameState ? gameState.inventory : (activeTeam.inventory?.standard ?? 0)} />
+                      </span>
                       <div className="flex items-center gap-1.5 mt-0.5">
-                        <span className="text-[12px] font-black text-[#4a2c11]">
-                          <AnimatedNumber value={gameState ? gameState.inventory : (currentTeam.inventory?.standard ?? 0)} />
-                        </span>
-                        <div className="w-20 h-2 bg-[#f1ebd9] border border-[#4a2c11] rounded-full overflow-hidden">
-                          <div 
-                            className="h-full bg-[#ffa726] transition-all duration-300"
-                            style={{ 
-                              width: `${Math.min(100, (((gameState ? gameState.inventory : (currentTeam.inventory?.standard ?? 0)) / 1000) * 100))}%` 
-                            }} 
+                        <div className="w-16 bg-gray-200 border-2 border-[#4a2c11] rounded-full h-3.5 overflow-hidden">
+                          <motion.div 
+                            className="bg-orange-500 h-full" 
+                            initial={{ width: 0 }}
+                            animate={{ 
+                              width: `${Math.min(100, (((gameState ? gameState.inventory : (activeTeam.inventory?.standard ?? 0)) / 1000) * 100))}%` 
+                            }}
                           />
                         </div>
                       </div>
@@ -2012,11 +1829,11 @@ export function StudentDashboard() {
                       cashFlash === 'loss' ? 'text-red-500' :
                       'text-[#4a2c11]'
                     }`} style={{ fontSize: '20px', fontWeight: 900, display: 'block', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      ₹<AnimatedNumber value={gameState?.balance ?? currentTeam.balance ?? 0} />
+                      ₹<AnimatedNumber value={gameState?.balance ?? activeTeam.balance ?? 0} />
                     </span>
                   </div>
                   <div style={{ marginTop: '6px' }} className="flex justify-center">
-                    <svg width="90" height="60" viewBox="0 0 70 45" key={`piggy-${gameState?.balance ?? currentTeam.balance}`}>
+                    <svg width="90" height="60" viewBox="0 0 70 45" key={`piggy-${gameState?.balance ?? activeTeam.balance}`}>
                       {/* Green Cash Note dropping into slot (Increase or default) */}
                       {(balanceChange === 'increase' || balanceChange === 'none') && (
                         <motion.g
@@ -2095,7 +1912,7 @@ export function StudentDashboard() {
 
                 {/* View Report Button */}
                 <motion.button 
-                  onClick={() => { playBeep(880, 'sine', 0.1); showToast("Opening corporate spreadsheet report..."); downloadCSV(results, currentTeam.name); }}
+                  onClick={() => { playBeep(880, 'sine', 0.1); showToast("Opening corporate spreadsheet report..."); downloadCSV(results, activeTeam.name); }}
                   style={{
                     border: '3.5px solid #4a2c11',
                     borderRadius: '12px',
@@ -2125,24 +1942,7 @@ export function StudentDashboard() {
           </div>
         </div>
       </main>
-      {/* ─── Overtime Baking Dash Mini-Game Modal ─── */}
-      <AnimatePresence>
-        {showOvertimeModal && (
-          <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center z-[150] p-4">
-            <motion.div 
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-[#0c0c1a] border-4 border-[#4a2c11] max-w-4xl w-full p-2 shadow-2xl relative rounded-2xl"
-            >
-              <SodaBottlingGame 
-                onReward={handleOvertimeReward}
-                onClose={() => setShowOvertimeModal(false)}
-              />
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+
 
       {/* ─── Offered & Active Contracts Modal ─── */}
       <AnimatePresence>
@@ -2169,12 +1969,12 @@ export function StudentDashboard() {
                 {/* Contracts Offered */}
                 <div>
                   <h4 className="text-[10px] uppercase font-black tracking-wider text-[#8c7662] mb-2">Offered Deals</h4>
-                  {currentTeam.contracts?.filter(c => c.status === 'offered').length === 0 ? (
+                  {activeTeam.contracts?.filter(c => c.status === 'offered').length === 0 ? (
                     <div className="p-3 border-2 border-dashed border-[#e6ccb2] rounded-xl text-center text-xs text-gray-500">
                       No distribution contract proposals offered currently.
                     </div>
                   ) : (
-                    currentTeam.contracts?.filter(c => c.status === 'offered').map(c => (
+                    activeTeam.contracts?.filter(c => c.status === 'offered').map(c => (
                       <div key={c.id} className="p-3 bg-[#fff9c4]/30 border-2 border-[#4a2c11] rounded-xl flex justify-between items-center text-xs gap-3">
                         <div className="text-left">
                           <span className="font-extrabold uppercase text-[#4a2c11] block">{c.name}</span>
@@ -2185,6 +1985,12 @@ export function StudentDashboard() {
                             onClick={async () => {
                               playBeep(523, 'sine', 0.1);
                               await acceptContract(c.id);
+                              setLocalTeam(prev => prev ? {
+                                ...prev,
+                                contracts: (prev.contracts ?? []).map(ct =>
+                                  ct.id === c.id ? { ...ct, status: 'accepted' as const } : ct
+                                )
+                              } : prev);
                               showToast(`Accepted "${c.name}" contract!`);
                             }}
                             className="bg-[#89b873] hover:bg-[#78a562] text-white border-2 border-[#4a2c11] shadow-[0_2px_0_#4a2c11] px-3 py-1 rounded font-black uppercase tracking-wider text-[9px] active:translate-y-0.5"
@@ -2200,12 +2006,12 @@ export function StudentDashboard() {
                 {/* Contracts Accepted */}
                 <div>
                   <h4 className="text-[10px] uppercase font-black tracking-wider text-[#8c7662] mb-2">Accepted Active Contracts</h4>
-                  {currentTeam.contracts?.filter(c => c.status === 'accepted').length === 0 ? (
+                  {activeTeam.contracts?.filter(c => c.status === 'accepted').length === 0 ? (
                     <div className="p-3 border-2 border-dashed border-[#e6ccb2] rounded-xl text-center text-xs text-gray-500">
                       No accepted active distribution agreements currently.
                     </div>
                   ) : (
-                    currentTeam.contracts?.filter(c => c.status === 'accepted').map(c => (
+                    activeTeam.contracts?.filter(c => c.status === 'accepted').map(c => (
                       <div key={c.id} className="p-3 bg-[#e8f5e9]/30 border-2 border-[#4a2c11] rounded-xl text-xs space-y-2">
                         <div className="flex justify-between items-start">
                           <div className="text-left">
@@ -2217,6 +2023,13 @@ export function StudentDashboard() {
                               if (window.confirm(`Abort contract ${c.name}? Will incur exit penalty of ₹${c.exitPenalty.toLocaleString()}.`)) {
                                 playBeep(220, 'sawtooth', 0.15);
                                 await abortContract(c.id);
+                                setLocalTeam(prev => prev ? {
+                                  ...prev,
+                                  balance: Math.max(0, prev.balance - c.exitPenalty),
+                                  contracts: (prev.contracts ?? []).map(ct =>
+                                    ct.id === c.id ? { ...ct, status: 'aborted' as const } : ct
+                                  )
+                                } : prev);
                                 showToast(`Aborted "${c.name}"!`);
                               }
                             }}
