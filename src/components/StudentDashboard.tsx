@@ -160,6 +160,7 @@ export function StudentDashboard() {
   const lastWrittenStateRef = useRef<any>({});
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [dismissEndedModal, setDismissEndedModal] = useState(false);
+  const [gameRunning, setGameRunning] = useState(false);
 
   // Sync ended modal dismissal state
   useEffect(() => {
@@ -216,6 +217,19 @@ export function StudentDashboard() {
     satisfaction: activeTeam.satisfaction ?? 100,
     ropFiredThisTick: false,
   } : null;
+
+  const stateRef = useRef<LocalGameState | null>(null);
+  useEffect(() => { stateRef.current = gameState; }, [gameState]);
+
+  // Refs for values needed inside the interval — prevents stale closures
+  const sessionRef = useRef(session);
+  useEffect(() => { sessionRef.current = session; }, [session]);
+
+  const currentTeamRef = useRef(currentTeam);
+  useEffect(() => { currentTeamRef.current = currentTeam; }, [currentTeam]);
+
+  const isDirectPlayRef = useRef(isDirectPlay);
+  useEffect(() => { isDirectPlayRef.current = isDirectPlay; }, [isDirectPlay]);
 
   useEffect(() => {
     if (!localTeam) return;
@@ -352,180 +366,203 @@ export function StudentDashboard() {
   }, [session?.currentRound]);
 
   // ─── UNIFIED LOCAL GAME LOOP & COUNTDOWN TIMER (Soda Pop Style) ───
-  useEffect(() => {
-    // Only run if session is active and we have local team state initialized
-    if (session?.status !== 'active' || !localTeam) return;
+  const runLocalTick = () => {
+    try {
+      const s = stateRef.current;
+      const session = sessionRef.current;
+      const currentTeam = currentTeamRef.current;
+      const isDirectPlay = isDirectPlayRef.current;
 
-    const tickDurationMs = Math.max(2000, (session?.settings?.roundDuration ?? 15) * 1000);
+      if (!s || !session || !currentTeam) return;
 
-    tickIntervalRef.current = setInterval(async () => {
-      try {
-        const team = localTeamRef.current;
-        const round = localRoundRef.current;
-        if (!team || !session) return;
+      const round = s.tick;
 
-        // Check end condition: 365 days
-        if (round > 365) {
-          if (tickIntervalRef.current) clearInterval(tickIntervalRef.current);
-          return;
-        }
-
-        // Build a dummy decision — ROP/Q policy runs automatically inside processDecision
-        const dummyDecision = {
-          id: `r${round}`,
-          sessionId: team.sessionId,
-          teamId: team.id,
-          round,
-          productionQty: { standard: 0 },
-          rawMaterialOrder: 0,
-          marketingSpend: 0,
-          submittedAt: new Date().toISOString()
-        };
-
-        const params = session?.settings?.parameters ?? DEFAULT_PARAMETERS;
-        const capacity = session?.settings?.capacity ?? 72;
-
-        const { updatedTeam, result } = processDecision(
-          team,
-          dummyDecision,
-          round,
-          [],
-          capacity,
-          session?.activeEvent ?? null,
-          params
-        );
-
-        const nextRound = round + 1;
-
-        // Calculate sales/contract revenue splits and opex
-        const salesRev = (team as any).salesRevenue || 0;
-        const contractRev = (team as any).contractRevenue || 0;
-        const costsPaid = (team as any).totalCostsPaid || 0;
-
-        let roundContractRevenue = 0;
-        (updatedTeam.contracts || []).forEach((c, idx) => {
-          const prevC = (team.contracts || [])[idx];
-          if (prevC && c.status === 'accepted') {
-            const diffDelivered = c.deliveredCount - prevC.deliveredCount;
-            if (diffDelivered > 0) {
-              roundContractRevenue += diffDelivered * c.pricePerUnit;
-            }
+      // Check end condition: 365 days
+      if (round > 365) {
+        setGameRunning(false);
+        setDismissEndedModal(false);
+        if (session?.id && currentTeam?.id) {
+          if (isDirectPlay) {
+            updateSession({ status: 'ended' });
+          } else {
+            updateDoc(doc(db, `sessions/${session.id}/teams/${currentTeam.id}`), {
+              status: 'ended'
+            }).catch(console.error);
           }
-        });
-        const roundSalesRevenue = result.revenue - roundContractRevenue;
-        
-        const nextSalesRevenue = salesRev + roundSalesRevenue;
-        const nextContractRevenue = contractRev + roundContractRevenue;
-        const nextTotalCostsPaid = costsPaid + (result.revenue - result.profit);
-
-        const teamWithStats = {
-          ...updatedTeam,
-          salesRevenue: nextSalesRevenue,
-          contractRevenue: nextContractRevenue,
-          totalCostsPaid: nextTotalCostsPaid,
-          tick: nextRound
-        };
-
-        // Update local state immediately — this drives ALL UI re-renders
-        setLocalTeam(teamWithStats);
-        setLocalRound(nextRound);
-        localTeamRef.current = teamWithStats;
-        localRoundRef.current = nextRound;
-
-        lastWrittenStateRef.current = {
-          balance: teamWithStats.balance,
-          flourStock: teamWithStats.flourStock,
-          sugarStock: teamWithStats.sugarStock,
-          eggsStock: teamWithStats.eggsStock,
-          cocoaStock: teamWithStats.cocoaStock,
-          satisfaction: teamWithStats.satisfaction,
-          tick: nextRound,
-        };
-
-        // Update activity log
-        const logEntry = `Round ${round}: Revenue ₹${result.revenue.toLocaleString()} | Profit ₹${result.profit.toFixed(0)} | Stock ${updatedTeam.inventory?.standard ?? 0}`;
-        setTickLog(prev => [logEntry, ...prev].slice(0, 10));
-
-        // Write to Firestore as a NON-BLOCKING side effect
-        if (session?.id && team?.id) {
-          setDoc(
-            doc(db, `sessions/${session.id}/teams/${team.id}`),
-            {
-              balance: teamWithStats.balance,
-              inventory: teamWithStats.inventory,
-              rawMaterials: teamWithStats.rawMaterials,
-              flourStock: teamWithStats.flourStock,
-              sugarStock: teamWithStats.sugarStock,
-              eggsStock: teamWithStats.eggsStock,
-              cocoaStock: teamWithStats.cocoaStock,
-              satisfaction: teamWithStats.satisfaction,
-              deliveries: teamWithStats.deliveries,
-              contracts: teamWithStats.contracts,
-              stations: teamWithStats.stations,
-              flourOrderQty: teamWithStats.flourOrderQty,
-              flourROP: teamWithStats.flourROP,
-              sugarOrderQty: teamWithStats.sugarOrderQty,
-              sugarROP: teamWithStats.sugarROP,
-              eggsOrderQty: teamWithStats.eggsOrderQty,
-              eggsROP: teamWithStats.eggsROP,
-              cocoaOrderQty: teamWithStats.cocoaOrderQty,
-              cocoaROP: teamWithStats.cocoaROP,
-              salesRevenue: nextSalesRevenue,
-              contractRevenue: nextContractRevenue,
-              totalCostsPaid: nextTotalCostsPaid,
-              tick: nextRound,
-              lastTickAt: serverTimestamp()
-            },
-            { merge: true }
-          ).catch(e => console.error('Tick Firestore write failed:', e));
-
-          // Also save this round result
-          setDoc(
-            doc(db, `sessions/${session.id}/teams/${team.id}/results`, `r${round}`),
-            result
-          ).catch(e => console.error('Result write failed:', e));
-
-          // CHANGE 1: Deleted the session.currentRound write
         }
-
-      } catch (err) {
-        console.error('StudentDashboard tick error:', err);
+        return;
       }
-    }, tickDurationMs);
 
-    return () => {
-      if (tickIntervalRef.current) clearInterval(tickIntervalRef.current);
-    };
-  }, [session?.status, session?.settings?.roundDuration, !!localTeam]);
+      // Build a dummy decision — ROP/Q policy runs automatically inside processDecision
+      const dummyDecision = {
+        id: `r${round}`,
+        sessionId: currentTeam.sessionId,
+        teamId: currentTeam.id,
+        round,
+        productionQty: { standard: 0 },
+        rawMaterialOrder: 0,
+        marketingSpend: 0,
+        submittedAt: new Date().toISOString()
+      };
 
-  // ─── VISUAL COUNTDOWN TIMER ───
-  useEffect(() => {
-    if (session?.status !== 'active' || !localTeam) {
-      setCountdown(session?.settings?.roundDuration ?? 15);
-      return;
+      const params = session?.settings?.parameters ?? DEFAULT_PARAMETERS;
+      const capacity = session?.settings?.capacity ?? 72;
+
+      const { updatedTeam, result } = processDecision(
+        currentTeam,
+        dummyDecision,
+        round,
+        [],
+        capacity,
+        session?.activeEvent ?? null,
+        params
+      );
+
+      const nextRound = round + 1;
+
+      // Calculate sales/contract revenue splits and opex
+      const salesRev = (currentTeam as any).salesRevenue || 0;
+      const contractRev = (currentTeam as any).contractRevenue || 0;
+      const costsPaid = (currentTeam as any).totalCostsPaid || 0;
+
+      let roundContractRevenue = 0;
+      (updatedTeam.contracts || []).forEach((c, idx) => {
+        const prevC = (currentTeam.contracts || [])[idx];
+        if (prevC && c.status === 'accepted') {
+          const diffDelivered = c.deliveredCount - prevC.deliveredCount;
+          if (diffDelivered > 0) {
+            roundContractRevenue += diffDelivered * c.pricePerUnit;
+          }
+        }
+      });
+      const roundSalesRevenue = result.revenue - roundContractRevenue;
+      
+      const nextSalesRevenue = salesRev + roundSalesRevenue;
+      const nextContractRevenue = contractRev + roundContractRevenue;
+      const nextTotalCostsPaid = costsPaid + (result.revenue - result.profit);
+
+      const teamWithStats = {
+        ...updatedTeam,
+        salesRevenue: nextSalesRevenue,
+        contractRevenue: nextContractRevenue,
+        totalCostsPaid: nextTotalCostsPaid,
+        tick: nextRound
+      };
+
+      // Update local state immediately — this drives ALL UI re-renders
+      setLocalTeam(teamWithStats);
+      setLocalRound(nextRound);
+      localTeamRef.current = teamWithStats;
+      localRoundRef.current = nextRound;
+
+      lastWrittenStateRef.current = {
+        balance: teamWithStats.balance,
+        flourStock: teamWithStats.flourStock,
+        sugarStock: teamWithStats.sugarStock,
+        eggsStock: teamWithStats.eggsStock,
+        cocoaStock: teamWithStats.cocoaStock,
+        satisfaction: teamWithStats.satisfaction,
+        tick: nextRound,
+      };
+
+      // Update activity log
+      const logEntry = `Round ${round}: Revenue ₹${result.revenue.toLocaleString()} | Profit ₹${result.profit.toFixed(0)} | Stock ${updatedTeam.inventory?.standard ?? 0}`;
+      setTickLog(prev => [logEntry, ...prev].slice(0, 10));
+
+      // Write to Firestore as a NON-BLOCKING side effect
+      if (session?.id && currentTeam?.id) {
+        setDoc(
+          doc(db, `sessions/${session.id}/teams/${currentTeam.id}`),
+          {
+            balance: teamWithStats.balance,
+            inventory: teamWithStats.inventory,
+            rawMaterials: teamWithStats.rawMaterials,
+            flourStock: teamWithStats.flourStock,
+            sugarStock: teamWithStats.sugarStock,
+            eggsStock: teamWithStats.eggsStock,
+            cocoaStock: teamWithStats.cocoaStock,
+            satisfaction: teamWithStats.satisfaction,
+            deliveries: teamWithStats.deliveries,
+            contracts: teamWithStats.contracts,
+            stations: teamWithStats.stations,
+            flourOrderQty: teamWithStats.flourOrderQty,
+            flourROP: teamWithStats.flourROP,
+            sugarOrderQty: teamWithStats.sugarOrderQty,
+            sugarROP: teamWithStats.sugarROP,
+            eggsOrderQty: teamWithStats.eggsOrderQty,
+            eggsROP: teamWithStats.eggsROP,
+            cocoaOrderQty: teamWithStats.cocoaOrderQty,
+            cocoaROP: teamWithStats.cocoaROP,
+            salesRevenue: nextSalesRevenue,
+            contractRevenue: nextContractRevenue,
+            totalCostsPaid: nextTotalCostsPaid,
+            tick: nextRound,
+            lastTickAt: serverTimestamp()
+          },
+          { merge: true }
+        ).catch(e => console.error('Tick Firestore write failed:', e));
+
+        // Also save this round result
+        setDoc(
+          doc(db, `sessions/${session.id}/teams/${currentTeam.id}/results`, `r${round}`),
+          result
+        ).catch(e => console.error('Result write failed:', e));
+      }
+    } catch (err) {
+      console.error('StudentDashboard tick error:', err);
     }
+  };
 
-    const duration = session?.settings?.roundDuration ?? 15;
-    setCountdown(duration);
+  // Start/stop game loop based on session status
+  // Fires when session status changes OR when gameState first initializes
+  useEffect(() => {
+    if (session?.status === 'active' && gameState !== null) {
+      setGameRunning(true);
+    } else if (session?.status !== 'active') {
+      setGameRunning(false);
+    }
+    // If session is active but gameState is null, do nothing — wait for gameState to init
+  }, [session?.status, gameState !== null]);
+
+  // Catch the case where gameState initializes after session is already active
+  useEffect(() => {
+    if (gameState !== null && session?.status === 'active' && !gameRunning) {
+      setGameRunning(true);
+    }
+  }, [gameState !== null]);
+
+  // Unified countdown and tick interval
+  useEffect(() => {
+    if (!gameRunning) return;
+
+    setCountdown(20);
 
     const timerId = setInterval(() => {
       setCountdown(prev => {
         if (prev <= 1) {
-          return duration;
+          return 20; // reset countdown — tick fires separately below
         }
         return prev - 1;
       });
     }, 1000);
 
-    return () => clearInterval(timerId);
-  }, [session?.status, session?.settings?.roundDuration, !!localTeam]);
+    // Separate interval that fires the actual tick every 20 seconds
+    const tickTimerId = setInterval(() => {
+      runLocalTick();
+    }, 20000);
+
+    return () => {
+      clearInterval(timerId);
+      clearInterval(tickTimerId);
+    };
+  }, [gameRunning]);
 
   // Reset countdown to the full duration whenever the day advances locally
   useEffect(() => {
     if (localRound) {
-      setCountdown(session?.settings?.roundDuration ?? 15);
+      setCountdown(20);
     }
-  }, [localRound, session?.settings?.roundDuration]);
+  }, [localRound]);
 
   // Audio Context synth beep player
   const playBeep = (freq = 440, type: OscillatorType = 'sine', duration = 0.1) => {
