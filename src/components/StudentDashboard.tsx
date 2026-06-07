@@ -284,6 +284,7 @@ export function StudentDashboard() {
       eggsStock: initialState.eggsStock,
       cocoaStock: initialState.cocoaStock,
       satisfaction: initialState.satisfaction,
+      tick: initialState.tick,
     };
   }, [currentTeam?.id]);
 
@@ -327,6 +328,10 @@ export function StudentDashboard() {
     }
     if (lastWritten.satisfaction === undefined || (currentTeam.satisfaction !== lastWritten.satisfaction && currentTeam.satisfaction !== gameState.satisfaction)) {
       nextState.satisfaction = currentTeam.satisfaction ?? nextState.satisfaction;
+      needsUpdate = true;
+    }
+    if (lastWritten.tick === undefined || (currentTeam.tick !== lastWritten.tick && currentTeam.tick !== gameState.tick)) {
+      nextState.tick = currentTeam.tick ?? nextState.tick;
       needsUpdate = true;
     }
     
@@ -374,6 +379,7 @@ export function StudentDashboard() {
         eggsStock: currentTeam.eggsStock,
         cocoaStock: currentTeam.cocoaStock,
         satisfaction: currentTeam.satisfaction,
+        tick: currentTeam.tick,
       };
     }
   }, [
@@ -383,6 +389,7 @@ export function StudentDashboard() {
     currentTeam?.eggsStock, 
     currentTeam?.cocoaStock, 
     currentTeam?.satisfaction,
+    currentTeam?.tick,
     currentTeam?.flourOrderQty,
     currentTeam?.flourROP,
     currentTeam?.sugarOrderQty,
@@ -392,6 +399,13 @@ export function StudentDashboard() {
     currentTeam?.cocoaOrderQty,
     currentTeam?.cocoaROP
   ]);
+
+  // Reset countdown to 20 whenever the day (tick) advances
+  useEffect(() => {
+    if (gameState?.tick) {
+      setCountdown(20);
+    }
+  }, [gameState?.tick]);
 
   // Sync session active settings / db modifications back to gameState
   useEffect(() => {
@@ -670,6 +684,13 @@ export function StudentDashboard() {
             },
             { merge: true }
           ).catch(console.error);
+
+          if (session && (s.tick + 1) > session.currentRound) {
+            updateDoc(doc(db, 'sessions', session.id), {
+              currentRound: s.tick + 1,
+              status: (s.tick + 1) > (session.totalRounds || 365) ? 'ended' : 'active'
+            }).catch(console.error);
+          }
         }
       }
 
@@ -724,7 +745,7 @@ export function StudentDashboard() {
   const handleOvertimeReward = (addedCash: number, addedRM: number) => {
     setGameState(prev => {
       if (!prev) return prev;
-      return {
+      const updated = {
         ...prev,
         balance: prev.balance + addedCash,
         flourStock: prev.flourStock + Math.round(0.35 * addedRM),
@@ -732,6 +753,19 @@ export function StudentDashboard() {
         eggsStock: prev.eggsStock + Math.round(0.20 * addedRM),
         cocoaStock: prev.cocoaStock + Math.round(0.20 * addedRM),
       };
+
+      if (!isDirectPlay && session?.id && currentTeam?.id) {
+        updateDoc(doc(db, `sessions/${session.id}/teams`, currentTeam.id), {
+          balance: updated.balance,
+          flourStock: updated.flourStock,
+          sugarStock: updated.sugarStock,
+          eggsStock: updated.eggsStock,
+          cocoaStock: updated.cocoaStock,
+          rawMaterials: (currentTeam.rawMaterials || 0) + addedRM
+        }).catch(console.error);
+      }
+
+      return updated;
     });
   };
 

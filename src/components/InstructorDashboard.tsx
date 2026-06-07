@@ -2224,7 +2224,7 @@ export function InstructorDashboard() {
                           </div>
                         </td>
                         <td className="p-4 font-mono font-extrabold text-gray-400">
-                          Day {session.currentRound}
+                          Day {team.tick ?? session.currentRound ?? 1}
                         </td>
                         <td className="p-4 font-mono text-orange-500">
                           {team.satisfaction || 100}% CSAT
