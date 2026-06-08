@@ -1677,28 +1677,7 @@ export function StudentDashboard() {
                 Apply Order Changes
               </button>
 
-              {/* Pending Shipments */}
-              <div className="mt-1 pt-1 border-t border-[#4a2c11]/10">
-                <span className="text-[9px] uppercase font-black tracking-wider text-[#8c7662] block mb-0.5">📦 Pending Shipments</span>
-                {((gameState?.deliveries ?? activeTeam.deliveries ?? []).length === 0) ? (
-                  <div className="py-2 text-center text-[#8a7360] font-black uppercase text-[9px] tracking-wider border-2 border-dashed border-[#e6ccb2] rounded-xl bg-[#fffbf7]/60">
-                    🚚 No Incoming Shipments
-                  </div>
-                ) : (
-                  <div className="space-y-1 max-h-[85px] overflow-y-auto pr-1">
-                    {(gameState?.deliveries ?? activeTeam.deliveries ?? []).map((d, idx) => {
-                      const ticksRemaining = Math.max(0, d.roundArriving - (gameState?.tick ?? 1));
-                      return (
-                        <div key={idx} className="text-[8.5px] bg-[#f1ebd9] border border-[#4a2c11] rounded px-1 py-0.25 font-mono text-[#4a2c11] flex items-center gap-1 font-bold">
-                          <span className="capitalize">{d.item || 'flour'}:</span>
-                          <span>{d.quantity}</span>
-                          <span className="text-indigo-600">({ticksRemaining}d)</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+              {/* Pending Shipments Removed */}
             </div>
           </div>
 
@@ -1712,11 +1691,10 @@ export function StudentDashboard() {
             <div className="p-1.5 space-y-1 flex-1 overflow-y-auto min-h-0">
               <table className="w-full text-left border-collapse table-fixed">
                 <colgroup>
+                  <col style={{ width: '30%' }} />
+                  <col style={{ width: '30%' }} />
+                  <col style={{ width: '15%' }} />
                   <col style={{ width: '25%' }} />
-                  <col style={{ width: '28%' }} />
-                  <col style={{ width: '11%' }} />
-                  <col style={{ width: '22%' }} />
-                  <col style={{ width: '14%' }} />
                 </colgroup>
                 <thead>
                   <tr className="border-b border-[#e6ccb2] text-[9.5px] uppercase tracking-wider text-[#8a7360] font-black whitespace-nowrap">
@@ -1724,7 +1702,6 @@ export function StudentDashboard() {
                     <th className="pb-1 text-center">Running</th>
                     <th className="pb-1 text-center">Total</th>
                     <th className="pb-1 text-center">Capacity</th>
-                    <th className="pb-1 text-right">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-dashed divide-[#e6ccb2] text-[12px] font-extrabold">
@@ -1765,11 +1742,6 @@ export function StudentDashboard() {
                         </div>
                       </div>
                     </td>
-                    <td className="py-[1px] text-right">
-                      <span className={mixingRunning > 0 ? 'muffin-badge-on' : 'muffin-badge-off'}>
-                        {mixingRunning > 0 ? 'ON' : 'OFF'}
-                      </span>
-                    </td>
                   </tr>
  
                   {/* Baking */}
@@ -1808,11 +1780,6 @@ export function StudentDashboard() {
                           />
                         </div>
                       </div>
-                    </td>
-                    <td className="py-[1px] text-right">
-                      <span className={bakingRunning > 0 ? 'muffin-badge-on' : 'muffin-badge-off'}>
-                        {bakingRunning > 0 ? 'ON' : 'OFF'}
-                      </span>
                     </td>
                   </tr>
  
@@ -1853,11 +1820,6 @@ export function StudentDashboard() {
                         </div>
                       </div>
                     </td>
-                    <td className="py-[1px] text-right">
-                      <span className={icingRunning > 0 ? 'muffin-badge-on' : 'muffin-badge-off'}>
-                        {icingRunning > 0 ? 'ON' : 'OFF'}
-                      </span>
-                    </td>
                   </tr>
  
                   {/* Packaging */}
@@ -1896,11 +1858,6 @@ export function StudentDashboard() {
                           />
                         </div>
                       </div>
-                    </td>
-                    <td className="py-[1px] text-right">
-                      <span className={packingRunning > 0 ? 'muffin-badge-on' : 'muffin-badge-off'}>
-                        {packingRunning > 0 ? 'ON' : 'OFF'}
-                      </span>
                     </td>
                   </tr>
                 </tbody>

@@ -256,28 +256,18 @@ export const AnimatedFactoryFloor: React.FC<Props> = ({
         draggable={false}
       />
 
-      {/* 2. Interactive Status Pill */}
-      <div className="absolute flex items-center gap-1.5 rounded-full bg-black/55 px-2 py-0.5 text-[8px] sm:text-[10px] font-black text-white"
-           style={{ right: "2%", top: "2.5%", border: '1.5px solid #4a2c11', zIndex: 20 }}>
-        {isAnyStationOffline ? (
-          <>
-            <span className="h-1.5 w-1.5 sm:h-2 sm:w-2 animate-pulse rounded-full bg-red-500 shadow-[0_0_8px_2px_rgba(239,68,68,0.7)]" />
-            SYSTEM BOTTLENECK
-          </>
-        ) : (
-          <>
-            <span className="h-1.5 w-1.5 sm:h-2 sm:w-2 animate-pulse rounded-full bg-green-400 shadow-[0_0_8px_2px_rgba(74,222,128,0.7)]" />
-            ALL SYSTEMS NORMAL
-          </>
-        )}
-      </div>
-
-      {/* 3. Production counter */}
-      <div className="absolute rounded-md bg-[#1b4322]/85 border-2 border-[#4a2c11] px-2 py-0.5 text-right font-mono text-white shadow"
-           style={{ right: "2%", top: "9%", minWidth: "75px", zIndex: 20 }}>
-        <div style={{ fontSize: '7px', fontWeight: 900, textTransform: 'uppercase', color: '#a5d6a7', lineHeight: 1.1 }}>Today's Production</div>
-        <div style={{ fontSize: '13px', sm: '15px', fontWeight: 900, letterSpacing: '0.05em', lineHeight: 1.1 }}>{produced.toString().padStart(5, "0")}</div>
-      </div>
+      {/* Visual patches to hide baked-in image labels */}
+      {/* Top right "ALL SYSTEMS NORMAL" blue bar patch */}
+      <div className="absolute" style={{ right: 0, top: 0, width: "23%", height: "8%", zIndex: 1, backgroundColor: "#3b8cd4" }} />
+      
+      {/* Top right "TODAY'S PRODUCTION" board patch */}
+      <div className="absolute" style={{ right: "2%", top: "11%", width: "16%", height: "20%", zIndex: 1, backdropFilter: "blur(12px)", backgroundColor: "rgba(102, 161, 142, 0.4)", borderRadius: "8px" }} />
+      
+      {/* Machine Status Labels Patches */}
+      <div className="absolute" style={{ left: "6%", top: "67%", width: "13%", height: "4.5%", zIndex: 1, backdropFilter: "blur(8px)", backgroundColor: "rgba(224, 184, 102, 0.7)", borderRadius: "6px" }} />
+      <div className="absolute" style={{ left: "28%", top: "64%", width: "12%", height: "4.5%", zIndex: 1, backdropFilter: "blur(8px)", backgroundColor: "rgba(224, 184, 102, 0.7)", borderRadius: "6px" }} />
+      <div className="absolute" style={{ left: "53%", top: "65.5%", width: "13%", height: "4.5%", zIndex: 1, backdropFilter: "blur(8px)", backgroundColor: "rgba(224, 184, 102, 0.7)", borderRadius: "6px" }} />
+      <div className="absolute" style={{ left: "71%", top: "66%", width: "13%", height: "4.5%", zIndex: 1, backdropFilter: "blur(8px)", backgroundColor: "rgba(224, 184, 102, 0.7)", borderRadius: "6px" }} />
 
       {/* 4. Baker Overlay - flickering oven glow & chimney steam */}
       {bakingRunning > 0 && !isAnyStationOffline && (
