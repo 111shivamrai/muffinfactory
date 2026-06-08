@@ -256,18 +256,6 @@ export const AnimatedFactoryFloor: React.FC<Props> = ({
         draggable={false}
       />
 
-      {/* Visual patches to hide baked-in image labels */}
-      {/* Top right "ALL SYSTEMS NORMAL" blue bar patch */}
-      <div className="absolute" style={{ right: 0, top: 0, width: "23%", height: "8%", zIndex: 1, backgroundColor: "#3b8cd4" }} />
-      
-      {/* Top right "TODAY'S PRODUCTION" board patch */}
-      <div className="absolute" style={{ right: "2%", top: "11%", width: "16%", height: "20%", zIndex: 1, backdropFilter: "blur(12px)", backgroundColor: "rgba(102, 161, 142, 0.4)", borderRadius: "8px" }} />
-      
-      {/* Machine Status Labels Patches */}
-      <div className="absolute" style={{ left: "6%", top: "67%", width: "13%", height: "4.5%", zIndex: 1, backdropFilter: "blur(8px)", backgroundColor: "rgba(224, 184, 102, 0.7)", borderRadius: "6px" }} />
-      <div className="absolute" style={{ left: "28%", top: "64%", width: "12%", height: "4.5%", zIndex: 1, backdropFilter: "blur(8px)", backgroundColor: "rgba(224, 184, 102, 0.7)", borderRadius: "6px" }} />
-      <div className="absolute" style={{ left: "53%", top: "65.5%", width: "13%", height: "4.5%", zIndex: 1, backdropFilter: "blur(8px)", backgroundColor: "rgba(224, 184, 102, 0.7)", borderRadius: "6px" }} />
-      <div className="absolute" style={{ left: "71%", top: "66%", width: "13%", height: "4.5%", zIndex: 1, backdropFilter: "blur(8px)", backgroundColor: "rgba(224, 184, 102, 0.7)", borderRadius: "6px" }} />
 
       {/* 4. Baker Overlay - flickering oven glow & chimney steam */}
       {bakingRunning > 0 && !isAnyStationOffline && (
