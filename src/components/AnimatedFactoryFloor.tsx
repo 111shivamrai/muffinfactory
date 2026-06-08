@@ -59,14 +59,15 @@ function BoxSVG() {
   );
 }
 
-function Box({ delay, paused }: { delay: string; paused: boolean }) {
+function Box({ delay, paused, packingRunning }: { delay: string; paused: boolean; packingRunning: number }) {
+  const duration = 3 / (packingRunning || 1);
   return (
     <div className="absolute" style={{
       top: "30%",
       left: 0,
       width: "16%",
       aspectRatio: "1/1",
-      animation: "shipOut 3s linear infinite",
+      animation: `shipOut ${duration}s linear infinite`,
       animationDelay: delay,
       animationPlayState: paused ? 'paused' : 'running',
     }}>
@@ -85,13 +86,15 @@ interface Props {
   bakingRunning: number;
   icingRunning: number;
   packingRunning: number;
+  onCupcakeProduced?: () => void;
 }
 
 export const AnimatedFactoryFloor: React.FC<Props> = ({ 
   mixingRunning, 
   bakingRunning, 
   icingRunning, 
-  packingRunning 
+  packingRunning,
+  onCupcakeProduced
 }) => {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [produced, setProduced] = useState(0);
@@ -152,7 +155,7 @@ export const AnimatedFactoryFloor: React.FC<Props> = ({
               packer: packingRunning
             }[b.stage];
 
-            const speedMultiplier = runningCount > 0 ? 1 : 0;
+            const speedMultiplier = runningCount;
             const p = b.progress + (dt * speedMultiplier) / STAGE_TIME;
 
             if (p >= 1) {
@@ -166,6 +169,9 @@ export const AnimatedFactoryFloor: React.FC<Props> = ({
 
         if (producedDelta > 0) {
           setProduced((v) => v + producedDelta);
+          if (onCupcakeProduced) {
+            onCupcakeProduced();
+          }
         }
 
         // Spawn a new batch only if Mixer is running and the conveyor isn't halted
@@ -280,13 +286,13 @@ export const AnimatedFactoryFloor: React.FC<Props> = ({
                style={{
                  left: `${STAGE_X.baker - 5.5}%`, top: "42%", width: "11%", height: "15%",
                  background: "radial-gradient(ellipse, rgba(255,170,80,0.65), rgba(255,120,40,0) 70%)",
-                 mixBlendMode: "screen", animation: "ovenPulse 0.9s ease-in-out infinite",
+                 mixBlendMode: "screen", animation: `ovenPulse ${0.9 / bakingRunning}s ease-in-out infinite`,
                  zIndex: 1
                }} />
           <div className="pointer-events-none absolute" style={{ left: `${STAGE_X.baker + 1}%`, top: "14%", width: "2%", height: "20%", zIndex: 1 }}>
-            <span className="steam" style={{ animationDelay: "0s" }} />
-            <span className="steam" style={{ animationDelay: "0.7s" }} />
-            <span className="steam" style={{ animationDelay: "1.4s" }} />
+            <span className="steam" style={{ animationDelay: "0s", animationDuration: `${1.8 / bakingRunning}s` }} />
+            <span className="steam" style={{ animationDelay: `${0.7 / bakingRunning}s`, animationDuration: `${1.8 / bakingRunning}s` }} />
+            <span className="steam" style={{ animationDelay: `${1.4 / bakingRunning}s`, animationDuration: `${1.8 / bakingRunning}s` }} />
           </div>
         </>
       )}
@@ -294,9 +300,9 @@ export const AnimatedFactoryFloor: React.FC<Props> = ({
       {/* 5. Icer Overlay - pink icing drip */}
       {icingRunning > 0 && !isAnyStationOffline && (
         <div className="pointer-events-none absolute" style={{ left: `${STAGE_X.icer}%`, top: "40%", width: 0, height: 0, zIndex: 1 }}>
-          <span className="drip" style={{ animationDelay: "0s" }} />
-          <span className="drip" style={{ animationDelay: "0.4s" }} />
-          <span className="drip" style={{ animationDelay: "0.8s" }} />
+          <span className="drip" style={{ animationDelay: "0s", animationDuration: `${1.2 / icingRunning}s` }} />
+          <span className="drip" style={{ animationDelay: `${0.4 / icingRunning}s`, animationDuration: `${1.2 / icingRunning}s` }} />
+          <span className="drip" style={{ animationDelay: `${0.8 / icingRunning}s`, animationDuration: `${1.2 / icingRunning}s` }} />
         </div>
       )}
 
@@ -304,7 +310,7 @@ export const AnimatedFactoryFloor: React.FC<Props> = ({
       <svg className="pointer-events-none absolute" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet"
            style={{ left: `${STAGE_X.packer - 6}%`, top: "38%", width: "12%", height: "20%", zIndex: 1 }}>
         <g style={{
-          animation: (packingRunning > 0 && !isAnyStationOffline) ? "press 0.9s ease-in-out infinite" : "none"
+          animation: (packingRunning > 0 && !isAnyStationOffline) ? `press ${0.9 / packingRunning}s ease-in-out infinite` : "none"
         }}>
           <rect x="42" y="10" width="16" height="30" fill="#90a4ae" stroke="#546e7a" strokeWidth="1.5" rx="2" />
           <rect x="38" y="38" width="24" height="6" fill="#455a64" rx="1" />
@@ -313,9 +319,9 @@ export const AnimatedFactoryFloor: React.FC<Props> = ({
 
       {/* 7. Outgoing boxes drifting along right belt */}
       <div className="pointer-events-none absolute overflow-hidden" style={{ left: "72%", top: "70%", width: "26%", height: "14%", zIndex: 1 }}>
-        <Box delay="0s" paused={isAnyStationOffline || packingRunning === 0} />
-        <Box delay="1s" paused={isAnyStationOffline || packingRunning === 0} />
-        <Box delay="2s" paused={isAnyStationOffline || packingRunning === 0} />
+        <Box delay="0s" paused={isAnyStationOffline || packingRunning === 0} packingRunning={packingRunning} />
+        <Box delay="1s" paused={isAnyStationOffline || packingRunning === 0} packingRunning={packingRunning} />
+        <Box delay="2s" paused={isAnyStationOffline || packingRunning === 0} packingRunning={packingRunning} />
       </div>
 
       {/* 8. Moving batches on the main belt (SVG Cupcakes and boxes) */}

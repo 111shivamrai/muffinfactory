@@ -126,6 +126,169 @@ interface LocalGameState {
   ropFiredThisTick: boolean;
 }
 
+export function getNextGameState(
+  s: LocalGameState,
+  session: any
+): LocalGameState {
+  const params = session?.settings?.parameters ?? DEFAULT_PARAMETERS;
+  const LEAD_TIME = params.baseLeadTime ?? 1;
+  const RM_PRICE = params.rawMaterialUnitPrice ?? 8;
+  const STORAGE_COST = params.storageCost ?? 1;
+  const SELLING_PRICE = params.products?.[0]?.sellingPrice ?? 20;
+  const PRODUCTION_COST = params.products?.[0]?.productionCost ?? 2;
+  const BACKORDER_PENALTY = params.backorderPenalty ?? 2;
+  const event = session?.activeEvent ?? null;
+
+  const arriving = s.deliveries.filter(d => d.roundArriving <= s.tick);
+  const stillPending = s.deliveries.filter(d => d.roundArriving > s.tick);
+
+  let flour = s.flourStock;
+  let sugar = s.sugarStock;
+  let eggs = s.eggsStock;
+  let cocoa = s.cocoaStock;
+
+  arriving.forEach(d => {
+    const item = d.item || 'flour';
+    if (item === 'flour') flour += d.quantity;
+    else if (item === 'sugar') sugar += d.quantity;
+    else if (item === 'eggs') eggs += d.quantity;
+    else if (item === 'cocoa') cocoa += d.quantity;
+  });
+
+  let mixingCap = (s.stations.mixing?.active ?? 2) * (s.stations.mixing?.capacityPerMachine ?? 54);
+  let bottlingCap = (s.stations.bottling?.active ?? 3) * (s.stations.bottling?.capacityPerMachine ?? 24);
+  let icingCap = (s.stations.icing?.active ?? 1) * (s.stations.icing?.capacityPerMachine ?? 55);
+  let packagingCap = (s.stations.packaging?.active ?? 1) * (s.stations.packaging?.capacityPerMachine ?? 216);
+
+  if (event?.type === 'machine_breakdown') {
+    const penaltyRatio = event.severity === 'low' ? 0.8 : event.severity === 'medium' ? 0.6 : 0.4;
+    mixingCap = Math.round(mixingCap * penaltyRatio);
+    bottlingCap = Math.round(bottlingCap * penaltyRatio);
+    icingCap = Math.round(icingCap * penaltyRatio);
+    packagingCap = Math.round(packagingCap * penaltyRatio);
+  }
+
+  const bottleneck = Math.min(mixingCap, bottlingCap, icingCap, packagingCap);
+  const matLimit = Math.min(flour, sugar, eggs, cocoa);
+  const produced = Math.min(bottleneck, matLimit);
+  flour -= produced;
+  sugar -= produced;
+  eggs -= produced;
+  cocoa -= produced;
+  const productionCostThisTick = produced * PRODUCTION_COST;
+  let inventory = s.inventory + produced;
+
+  let rawMaterialPrice = RM_PRICE;
+  if (event?.type === 'material_shortage') {
+    rawMaterialPrice *= event.severity === 'low' ? 1.5 : event.severity === 'medium' ? 2.0 : 3.0;
+  }
+
+  let newDeliveries = [...stillPending];
+  let rawMatOrderCost = 0;
+  let ropFired = false;
+
+  const checkAndOrder = (stock: number, rop: number, qty: number, item: Delivery['item']) => {
+    const inFlight = newDeliveries
+      .filter(d => d.item === item || (!d.item && item === 'flour'))
+      .reduce((sum, d) => sum + d.quantity, 0);
+    if (stock + inFlight <= rop && qty > 0) {
+      newDeliveries.push({ roundArriving: s.tick + LEAD_TIME, quantity: qty, item });
+      rawMatOrderCost += qty * rawMaterialPrice + 100;
+      ropFired = true;
+    }
+  };
+
+  checkAndOrder(flour, s.flourROP, s.flourOrderQty, 'flour');
+  checkAndOrder(sugar, s.sugarROP, s.sugarOrderQty, 'sugar');
+  checkAndOrder(eggs, s.eggsROP, s.eggsOrderQty, 'eggs');
+  checkAndOrder(cocoa, s.cocoaROP, s.cocoaOrderQty, 'cocoa');
+
+  const updatedContracts = s.contracts.map(c => {
+    if (c.status === 'pending' && (s.tick + 1) >= c.appearsAtDay) {
+      return { ...c, status: 'offered' as const };
+    }
+    return c;
+  });
+
+  let contractRevenueThisTick = 0;
+  let totalContractDemanded = 0;
+  let totalContractDelivered = 0;
+
+  const activeContracts = updatedContracts.filter(
+    c => c.status === 'accepted' && s.tick >= c.beginsAtDay && s.tick <= c.endsAtDay
+  );
+  activeContracts.forEach(c => {
+    const demand = c.dailyDemand;
+    totalContractDemanded += demand;
+    const delivered = Math.min(inventory, demand);
+    inventory -= delivered;
+    contractRevenueThisTick += delivered * c.pricePerUnit;
+    totalContractDelivered += delivered;
+    c.deliveredCount += delivered;
+    c.demandedCount += demand;
+  });
+
+  let contractPenaltiesThisTick = 0;
+  const finalContracts = updatedContracts.map(c => {
+    if (c.status === 'accepted' && s.tick === c.endsAtDay) {
+      const fillRate = c.demandedCount > 0 ? (c.deliveredCount / c.demandedCount) : 0;
+      if (fillRate < c.fillRateRequired / 100) {
+        contractPenaltiesThisTick += c.fillRatePenalty;
+      }
+      return { ...c, status: 'finished' as const };
+    }
+    return c;
+  });
+
+  const calculatedDemands = calculateDemand(s.tick, 0, event);
+  const demand = calculatedDemands['standard'] || 100;
+  const sold = Math.min(inventory, demand);
+  const stockout = demand - sold;
+  inventory -= sold;
+
+  const salesRevenueThisTick = sold * SELLING_PRICE;
+  const backorderCost = stockout * BACKORDER_PENALTY;
+  const holdingCost = inventory * STORAGE_COST;
+  const totalActiveMachines =
+    (s.stations.mixing?.active ?? 0) + (s.stations.bottling?.active ?? 0) +
+    (s.stations.icing?.active ?? 0) + (s.stations.packaging?.active ?? 0);
+  const machineCostThisTick = totalActiveMachines * 50;
+
+  const totalOpex = productionCostThisTick + rawMatOrderCost + holdingCost + backorderCost + machineCostThisTick + contractPenaltiesThisTick;
+  const profit = (salesRevenueThisTick + contractRevenueThisTick) - totalOpex;
+  const newSalesRevenue = s.salesRevenue + salesRevenueThisTick;
+  const newContractRevenue = s.contractRevenue + contractRevenueThisTick;
+  const newTotalCostsPaid = s.totalCostsPaid + totalOpex;
+  const totalCash = s.initialCash + newSalesRevenue + newContractRevenue - newTotalCostsPaid;
+
+  const totalDayDemanded = totalContractDemanded + demand;
+  const totalDayDelivered = totalContractDelivered + sold;
+  const serviceLevelIndex = totalDayDemanded > 0 ? (totalDayDelivered / totalDayDemanded) : 1;
+  const nextSatisfaction = Math.max(0, Math.min(100, Math.round((s.satisfaction * 0.9) + (serviceLevelIndex * 10))));
+
+  return {
+    ...s,
+    balance: totalCash,
+    salesRevenue: newSalesRevenue,
+    contractRevenue: newContractRevenue,
+    totalCostsPaid: newTotalCostsPaid,
+    inventory,
+    flourStock: flour,
+    sugarStock: sugar,
+    eggsStock: eggs,
+    cocoaStock: cocoa,
+    deliveries: newDeliveries,
+    contracts: finalContracts,
+    tick: s.tick + 1,
+    lastDemand: demand,
+    lastSold: sold,
+    lastStockout: stockout,
+    lastRevenue: salesRevenueThisTick + contractRevenueThisTick,
+    satisfaction: nextSatisfaction,
+    ropFiredThisTick: ropFired
+  };
+}
+
 export function StudentDashboard() {
   const {
     session,
@@ -156,71 +319,20 @@ export function StudentDashboard() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [showContractsModal, setShowContractsModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
-  const lastWrittenStateRef = useRef<any>({});
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [dismissEndedModal, setDismissEndedModal] = useState(false);
 
-  // Sync ended modal dismissal state
-  useEffect(() => {
-    if (session?.status === 'active') {
-      setDismissEndedModal(false);
-    }
-  }, [session?.status]);
-
   // ─── SIMULATION ENGINE STATE ───
   const [gameState, setGameState] = useState<LocalGameState | null>(null);
+  const [dayTargetState, setDayTargetState] = useState<LocalGameState | null>(null);
+  const [floatingTexts, setFloatingTexts] = useState<{ id: number; text: string; color: string; x: number; y: number }[]>([]);
+  const [upgradeCelebration, setUpgradeCelebration] = useState<{ active: boolean; station: string } | null>(null);
   const [gameRunning, setGameRunning] = useState(false);
   const [countdown, setCountdown] = useState(20);
 
-  // Refs — always fresh inside intervals, never stale
-  const stateRef = useRef<LocalGameState | null>(null);
-  const sessionRef = useRef(session);
-  const currentTeamRef = useRef(currentTeam);
-  const isDirectPlayRef = useRef(isDirectPlay);
-  const updateSessionRef = useRef(updateSession);
-  const updateTeamStateRef = useRef(updateTeamState);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const tickIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Keep all refs in sync on every render
-  useEffect(() => { stateRef.current = gameState; }, [gameState]);
-  useEffect(() => { sessionRef.current = session; }, [session]);
-  useEffect(() => { currentTeamRef.current = currentTeam; }, [currentTeam]);
-  useEffect(() => { isDirectPlayRef.current = isDirectPlay; }, [isDirectPlay]);
-  useEffect(() => { updateSessionRef.current = updateSession; }, [updateSession]);
-  useEffect(() => { updateTeamStateRef.current = updateTeamState; }, [updateTeamState]);
-
   // Cash flash animation
   const [cashFlash, setCashFlash] = useState<'gain' | 'loss' | null>(null);
-  const prevBalanceRef = useRef<number | null>(null);
   const [balanceChange, setBalanceChange] = useState<'increase' | 'decrease' | 'none'>('none');
-
-  useEffect(() => {
-    if (!gameState) return;
-    const curr = gameState.balance;
-    if (prevBalanceRef.current !== null) {
-      if (curr > prevBalanceRef.current) setBalanceChange('increase');
-      else if (curr < prevBalanceRef.current) setBalanceChange('decrease');
-      else setBalanceChange('none');
-    }
-    prevBalanceRef.current = curr;
-  }, [gameState?.balance]);
-
-  const lastResult = results && results.length > 0 ? results[results.length - 1] : null;
-
-  const activeTeam = {
-    ...currentTeam,
-    balance: gameState?.balance ?? currentTeam.balance,
-    flourStock: gameState?.flourStock ?? currentTeam.flourStock,
-    sugarStock: gameState?.sugarStock ?? currentTeam.sugarStock,
-    eggsStock: gameState?.eggsStock ?? currentTeam.eggsStock,
-    cocoaStock: gameState?.cocoaStock ?? currentTeam.cocoaStock,
-    satisfaction: gameState?.satisfaction ?? currentTeam.satisfaction,
-    stations: gameState?.stations ?? currentTeam.stations,
-    deliveries: gameState?.deliveries ?? currentTeam.deliveries,
-    contracts: gameState?.contracts ?? currentTeam.contracts,
-    inventory: gameState ? { standard: gameState.inventory } : currentTeam.inventory,
-  };
 
   // Raw Material Local Inputs (committed on Apply)
   const [flourQ, setFlourQ] = useState(2000);
@@ -237,6 +349,217 @@ export function StudentDashboard() {
   const [bakingRunning, setBakingRunning] = useState(3);
   const [icingRunning, setIcingRunning] = useState(1);
   const [packingRunning, setPackingRunning] = useState(1);
+
+  // Refs
+  const lastWrittenStateRef = useRef<any>({});
+  const floatingIdCounter = useRef(0);
+  const prevBalanceRef = useRef<number | null>(null);
+  const stateRef = useRef<LocalGameState | null>(null);
+  const sessionRef = useRef(session);
+  const currentTeamRef = useRef(currentTeam);
+  const isDirectPlayRef = useRef(isDirectPlay);
+  const updateSessionRef = useRef(updateSession);
+  const updateTeamStateRef = useRef(updateTeamState);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const tickIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Sync ended modal dismissal state
+  useEffect(() => {
+    if (session?.status === 'active') {
+      setDismissEndedModal(false);
+    }
+  }, [session?.status]);
+
+  const addFloatingText = (text: string, color: string, x: number, y: number) => {
+    const id = floatingIdCounter.current++;
+    setFloatingTexts(prev => [...prev, { id, text, color, x, y }]);
+    setTimeout(() => {
+      setFloatingTexts(prev => prev.filter(t => t.id !== id));
+    }, 1200);
+  };
+
+  // Keep all refs in sync on every render
+  useEffect(() => { stateRef.current = gameState; }, [gameState]);
+  useEffect(() => { sessionRef.current = session; }, [session]);
+  useEffect(() => { currentTeamRef.current = currentTeam; }, [currentTeam]);
+  useEffect(() => { isDirectPlayRef.current = isDirectPlay; }, [isDirectPlay]);
+  useEffect(() => { updateSessionRef.current = updateSession; }, [updateSession]);
+  useEffect(() => { updateTeamStateRef.current = updateTeamState; }, [updateTeamState]);
+
+  useEffect(() => {
+    if (!gameState) return;
+    const curr = gameState.balance;
+    if (prevBalanceRef.current !== null) {
+      if (curr > prevBalanceRef.current) setBalanceChange('increase');
+      else if (curr < prevBalanceRef.current) setBalanceChange('decrease');
+      else setBalanceChange('none');
+    }
+    prevBalanceRef.current = curr;
+  }, [gameState?.balance]);
+
+  const lastResult = results && results.length > 0 ? results[results.length - 1] : null;
+
+  // Sub-tick calculations
+  const tickDuration = isDirectPlay ? 5 : 20;
+  const progressFraction = Math.max(0, Math.min(1, 1 - (countdown / tickDuration)));
+
+  const displayBalance = (gameState && dayTargetState)
+    ? gameState.balance + (dayTargetState.balance - gameState.balance) * progressFraction
+    : (gameState?.balance ?? currentTeam.balance);
+
+  const displayInventory = (gameState && dayTargetState)
+    ? gameState.inventory + (dayTargetState.inventory - gameState.inventory) * progressFraction
+    : (gameState?.inventory ?? currentTeam.inventory?.standard ?? 0);
+
+  const displayFlour = (gameState && dayTargetState)
+    ? gameState.flourStock + (dayTargetState.flourStock - gameState.flourStock) * progressFraction
+    : (gameState?.flourStock ?? currentTeam.flourStock ?? 0);
+
+  const displaySugar = (gameState && dayTargetState)
+    ? gameState.sugarStock + (dayTargetState.sugarStock - gameState.sugarStock) * progressFraction
+    : (gameState?.sugarStock ?? currentTeam.sugarStock ?? 0);
+
+  const displayEggs = (gameState && dayTargetState)
+    ? gameState.eggsStock + (dayTargetState.eggsStock - gameState.eggsStock) * progressFraction
+    : (gameState?.eggsStock ?? currentTeam.eggsStock ?? 0);
+
+  const displayCocoa = (gameState && dayTargetState)
+    ? gameState.cocoaStock + (dayTargetState.cocoaStock - gameState.cocoaStock) * progressFraction
+    : (gameState?.cocoaStock ?? currentTeam.cocoaStock ?? 0);
+
+  const displaySalesRevenue = (gameState && dayTargetState)
+    ? gameState.salesRevenue + (dayTargetState.salesRevenue - gameState.salesRevenue) * progressFraction
+    : (gameState?.salesRevenue ?? 0);
+
+  const displayRevenueToday = (gameState && dayTargetState)
+    ? dayTargetState.lastRevenue * progressFraction
+    : (gameState?.lastRevenue ?? 0);
+
+  const displaySatisfaction = (gameState && dayTargetState)
+    ? gameState.satisfaction + (dayTargetState.satisfaction - gameState.satisfaction) * progressFraction
+    : (gameState?.satisfaction ?? 100);
+
+  const activeTeam = {
+    ...currentTeam,
+    balance: displayBalance,
+    flourStock: displayFlour,
+    sugarStock: displaySugar,
+    eggsStock: displayEggs,
+    cocoaStock: displayCocoa,
+    satisfaction: displaySatisfaction,
+    stations: gameState?.stations ?? currentTeam.stations,
+    deliveries: gameState?.deliveries ?? currentTeam.deliveries,
+    contracts: gameState?.contracts ?? currentTeam.contracts,
+    inventory: { standard: displayInventory },
+  };
+
+  // Workfloor station capacities and bottleneck logic
+  const mixingCap = (mixingRunning ?? 0) * 54;
+  const bottlingCap = (bakingRunning ?? 0) * 24;
+  const icingCap = (icingRunning ?? 0) * 55;
+  const packagingCap = (packingRunning ?? 0) * 216;
+
+  const activeCapList = [mixingCap, bottlingCap, icingCap, packagingCap];
+  const activeCapMin = Math.min(...activeCapList);
+  const maxStationCapacity = Math.max(...activeCapList, 1);
+  
+  const displayMuffinsPerSec = activeCapMin / tickDuration;
+  const displayIncomePerSec = lastResult ? ((lastResult.profit || 0) / tickDuration) : 0;
+  const displayEfficiency = (activeCapMin / maxStationCapacity) * 100;
+
+  // Next Unlock Goal Milestones
+  const getNextGoal = () => {
+    const currentBalance = displayBalance;
+    const currentMixer = activeTeam.stations?.mixing?.owned ?? 3;
+    const currentBaker = activeTeam.stations?.bottling?.owned ?? 3;
+    const currentIcer = activeTeam.stations?.icing?.owned ?? 2;
+    const currentPacker = activeTeam.stations?.packaging?.owned ?? 1;
+
+    const mixerPrice = activeTeam.stations?.mixing?.purchasePrice ?? 20000;
+    const bakerPrice = activeTeam.stations?.bottling?.purchasePrice ?? 30000;
+    const icerPrice = activeTeam.stations?.icing?.purchasePrice ?? 60000;
+    const packerPrice = activeTeam.stations?.packaging?.purchasePrice ?? 100000;
+
+    if (currentMixer < 4) {
+      const progress = Math.min(100, (currentBalance / mixerPrice) * 100);
+      const diff = mixerPrice - currentBalance;
+      return {
+        title: "Acquire Mixer #4",
+        description: "Expand mixing station to support faster production batches.",
+        statusText: diff > 0 ? `₹${Math.ceil(diff).toLocaleString()} away` : "Ready to Purchase!",
+        benefitText: "+54 capacity",
+        progress,
+        id: "mixer"
+      };
+    }
+
+    if (currentBaker < 4) {
+      const progress = Math.min(100, (currentBalance / bakerPrice) * 100);
+      const diff = bakerPrice - currentBalance;
+      return {
+        title: "Acquire Baker #4",
+        description: "Expand baking capacity to resolve core production bottleneck.",
+        statusText: diff > 0 ? `₹${Math.ceil(diff).toLocaleString()} away` : "Ready to Purchase!",
+        benefitText: "+24 capacity",
+        progress,
+        id: "baker"
+      };
+    }
+
+    if (currentBalance < 2500000) {
+      const target = 2500000;
+      const progress = Math.min(100, (currentBalance / target) * 100);
+      const diff = target - currentBalance;
+      return {
+        title: "Unlock Distribution Deals",
+        description: "Scale your bakery by unlocking corporate distribution contracts.",
+        statusText: diff > 0 ? `₹${Math.ceil(diff).toLocaleString()} away` : "Milestone Reached!",
+        benefitText: "Unlock Contracts",
+        progress,
+        id: "contracts"
+      };
+    }
+
+    if (currentIcer < 3) {
+      const progress = Math.min(100, (currentBalance / icerPrice) * 100);
+      const diff = icerPrice - currentBalance;
+      return {
+        title: "Acquire Icer #3",
+        description: "Increase icing speed for decorative high-value muffins.",
+        statusText: diff > 0 ? `₹${Math.ceil(diff).toLocaleString()} away` : "Ready to Purchase!",
+        benefitText: "+55 capacity",
+        progress,
+        id: "icer"
+      };
+    }
+
+    if (currentPacker < 2) {
+      const progress = Math.min(100, (currentBalance / packerPrice) * 100);
+      const diff = packerPrice - currentBalance;
+      return {
+        title: "Acquire Packager #2",
+        description: "Fulfill giant shipping requirements with advanced packing lines.",
+        statusText: diff > 0 ? `₹${Math.ceil(diff).toLocaleString()} away` : "Ready to Purchase!",
+        benefitText: "+216 capacity",
+        progress,
+        id: "packager"
+      };
+    }
+
+    const target = 5000000;
+    const progress = Math.min(100, (currentBalance / target) * 100);
+    const diff = target - currentBalance;
+    return {
+      title: "Reach Industrial Scale",
+      description: "Establish ultimate market dominance as the #1 Muffin Brand.",
+      statusText: diff > 0 ? `₹${Math.ceil(diff).toLocaleString()} away` : "All Milestones Completed!",
+      benefitText: "Industrial Scale",
+      progress,
+      id: "industrial"
+    };
+  };
+
+  const nextGoal = getNextGoal();
 
   // Sync inputs from database updates
   useEffect(() => {
@@ -332,8 +655,8 @@ export function StudentDashboard() {
   useEffect(() => {
     if (!currentTeam || !gameState) return;
     const last = stateRef.current;
-    // If balance matches what we computed locally, this is our own write bouncing back — ignore
-    if (last && currentTeam.balance === last.balance) return;
+    // If both balance and tick match what we last wrote, ignore
+    if (last && currentTeam.balance === last.balance && currentTeam.tick === last.tick) return;
     // External change (instructor intervention) — apply selectively
     setGameState(prev => {
       if (!prev) return prev;
@@ -344,273 +667,136 @@ export function StudentDashboard() {
         contracts: currentTeam.contracts ?? prev.contracts,
         stations: currentTeam.stations ?? prev.stations,
         deliveries: currentTeam.deliveries ?? prev.deliveries,
+        tick: currentTeam.tick ?? prev.tick,
       };
     });
-  }, [currentTeam?.balance]);
+  }, [currentTeam?.balance, currentTeam?.tick]);
 
-  // ─── MAIN SIMULATION ENGINE — EXACT SAME PATTERN AS SodaBottlingGame ───
+  // Recompute the day's target end state whenever the base gameState changes
+  useEffect(() => {
+    if (gameState && session) {
+      const target = getNextGameState(gameState, session);
+      setDayTargetState(target);
+    }
+  }, [gameState, session]);
+
+  // ─── MAIN SIMULATION ENGINE — SINGLE 1-SECOND INTERVAL ───
   useEffect(() => {
     if (gameRunning) {
-      setCountdown(20);
+      const tickDuration = isDirectPlay ? 5 : 20;
+      setCountdown(tickDuration);
 
-      // Countdown display — 1 tick per second, pure display only
       intervalRef.current = setInterval(() => {
-        setCountdown(prev => (prev <= 1 ? 20 : prev - 1));
+        setCountdown(prev => {
+          if (prev <= 1) {
+            // Day tick!
+            const s = stateRef.current;
+            const session = sessionRef.current;
+            const currentTeam = currentTeamRef.current;
+            const isDirectPlay = isDirectPlayRef.current;
+
+            if (!s || !session || !currentTeam) return tickDuration;
+
+            try {
+              if (s.tick >= 365) {
+                setGameRunning(false);
+                setDismissEndedModal(false);
+                if (session.id && currentTeam.id) {
+                  if (isDirectPlay) {
+                    updateSessionRef.current({ status: 'ended' });
+                  } else {
+                    updateDoc(doc(db, `sessions/${session.id}/teams/${currentTeam.id}`), {
+                      status: 'ended'
+                    }).catch(console.error);
+                  }
+                }
+                return tickDuration;
+              }
+
+              const nextState = getNextGameState(s, session);
+              setGameState(nextState);
+              playBeep(440, 'sine', 0.05);
+
+              // Add floating text near Total Cash for end-of-day profit/loss
+              const profit = nextState.balance - s.balance;
+              if (profit !== 0) {
+                addFloatingText(
+                  `${profit > 0 ? '+' : '-'}₹${Math.abs(profit).toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+                  profit > 0 ? '#34d399' : '#f87171',
+                  window.innerWidth * 0.5,
+                  100
+                );
+              }
+
+              if (session.id && currentTeam.id) {
+                lastWrittenStateRef.current = {
+                  balance: nextState.balance,
+                  flourStock: nextState.flourStock,
+                  sugarStock: nextState.sugarStock,
+                  eggsStock: nextState.eggsStock,
+                  cocoaStock: nextState.cocoaStock,
+                  satisfaction: nextState.satisfaction,
+                  tick: nextState.tick,
+                };
+
+                if (isDirectPlay) {
+                  updateTeamStateRef.current(currentTeam.id, {
+                    balance: nextState.balance,
+                    inventory: { standard: nextState.inventory },
+                    flourStock: nextState.flourStock,
+                    sugarStock: nextState.sugarStock,
+                    eggsStock: nextState.eggsStock,
+                    cocoaStock: nextState.cocoaStock,
+                    deliveries: nextState.deliveries,
+                    contracts: nextState.contracts,
+                    salesRevenue: nextState.salesRevenue,
+                    contractRevenue: nextState.contractRevenue,
+                    totalCostsPaid: nextState.totalCostsPaid,
+                    tick: nextState.tick,
+                    satisfaction: nextState.satisfaction,
+                  });
+                  updateSessionRef.current({
+                    currentRound: nextState.tick,
+                    status: nextState.tick > 365 ? 'ended' : 'active'
+                  });
+                } else {
+                  setDoc(
+                    doc(db, `sessions/${session.id}/teams/${currentTeam.id}`),
+                    {
+                      balance: nextState.balance,
+                      inventory: { standard: nextState.inventory },
+                      flourStock: nextState.flourStock,
+                      sugarStock: nextState.sugarStock,
+                      eggsStock: nextState.eggsStock,
+                      cocoaStock: nextState.cocoaStock,
+                      deliveries: nextState.deliveries,
+                      contracts: nextState.contracts,
+                      salesRevenue: nextState.salesRevenue,
+                      contractRevenue: nextState.contractRevenue,
+                      totalCostsPaid: nextState.totalCostsPaid,
+                      tick: nextState.tick,
+                      satisfaction: nextState.satisfaction,
+                      lastUpdated: serverTimestamp()
+                    },
+                    { merge: true }
+                  ).catch(console.error);
+                }
+              }
+            } catch (err) {
+              console.error('Tick error:', err);
+            }
+
+            return tickDuration;
+          }
+          return prev - 1;
+        });
       }, 1000);
-
-      // Simulation tick — fires every 20 seconds, ALL logic inside, reads from refs
-      tickIntervalRef.current = setInterval(() => {
-        const s = stateRef.current;
-        const session = sessionRef.current;
-        const currentTeam = currentTeamRef.current;
-        const isDirectPlay = isDirectPlayRef.current;
-
-        if (!s || !session || !currentTeam) return;
-
-        try {
-          if (s.tick >= 365) {
-            setGameRunning(false);
-            setDismissEndedModal(false);
-            if (session.id && currentTeam.id) {
-              if (isDirectPlay) {
-                updateSessionRef.current({ status: 'ended' });
-              } else {
-                updateDoc(doc(db, `sessions/${session.id}/teams/${currentTeam.id}`), {
-                  status: 'ended'
-                }).catch(console.error);
-              }
-            }
-            return;
-          }
-
-          const params = session.settings?.parameters ?? DEFAULT_PARAMETERS;
-          const LEAD_TIME = params.baseLeadTime ?? 1;
-          const RM_PRICE = params.rawMaterialUnitPrice ?? 8;
-          const STORAGE_COST = params.storageCost ?? 1;
-          const SELLING_PRICE = params.products?.[0]?.sellingPrice ?? 20;
-          const PRODUCTION_COST = params.products?.[0]?.productionCost ?? 2;
-          const BACKORDER_PENALTY = params.backorderPenalty ?? 2;
-          const event = session.activeEvent ?? null;
-
-          const arriving = s.deliveries.filter(d => d.roundArriving <= s.tick);
-          const stillPending = s.deliveries.filter(d => d.roundArriving > s.tick);
-
-          let flour = s.flourStock;
-          let sugar = s.sugarStock;
-          let eggs = s.eggsStock;
-          let cocoa = s.cocoaStock;
-
-          arriving.forEach(d => {
-            const item = d.item || 'flour';
-            if (item === 'flour') flour += d.quantity;
-            else if (item === 'sugar') sugar += d.quantity;
-            else if (item === 'eggs') eggs += d.quantity;
-            else if (item === 'cocoa') cocoa += d.quantity;
-          });
-
-          let mixingCap = (s.stations.mixing?.active ?? 2) * (s.stations.mixing?.capacityPerMachine ?? 54);
-          let bottlingCap = (s.stations.bottling?.active ?? 3) * (s.stations.bottling?.capacityPerMachine ?? 24);
-          let icingCap = (s.stations.icing?.active ?? 1) * (s.stations.icing?.capacityPerMachine ?? 55);
-          let packagingCap = (s.stations.packaging?.active ?? 1) * (s.stations.packaging?.capacityPerMachine ?? 216);
-
-          if (event?.type === 'machine_breakdown') {
-            const penaltyRatio = event.severity === 'low' ? 0.8 : event.severity === 'medium' ? 0.6 : 0.4;
-            mixingCap = Math.round(mixingCap * penaltyRatio);
-            bottlingCap = Math.round(bottlingCap * penaltyRatio);
-            icingCap = Math.round(icingCap * penaltyRatio);
-            packagingCap = Math.round(packagingCap * penaltyRatio);
-          }
-
-          const bottleneck = Math.min(mixingCap, bottlingCap, icingCap, packagingCap);
-          const matLimit = Math.min(flour, sugar, eggs, cocoa);
-          const produced = Math.min(bottleneck, matLimit);
-          flour -= produced;
-          sugar -= produced;
-          eggs -= produced;
-          cocoa -= produced;
-          const productionCostThisTick = produced * PRODUCTION_COST;
-          let inventory = s.inventory + produced;
-
-          let rawMaterialPrice = RM_PRICE;
-          if (event?.type === 'material_shortage') {
-            rawMaterialPrice *= event.severity === 'low' ? 1.5 : event.severity === 'medium' ? 2.0 : 3.0;
-          }
-
-          let newDeliveries = [...stillPending];
-          let rawMatOrderCost = 0;
-          let ropFired = false;
-
-          const checkAndOrder = (stock: number, rop: number, qty: number, item: Delivery['item']) => {
-            const inFlight = newDeliveries
-              .filter(d => d.item === item || (!d.item && item === 'flour'))
-              .reduce((sum, d) => sum + d.quantity, 0);
-            if (stock + inFlight <= rop && qty > 0) {
-              newDeliveries.push({ roundArriving: s.tick + LEAD_TIME, quantity: qty, item });
-              rawMatOrderCost += qty * rawMaterialPrice + 100;
-              ropFired = true;
-            }
-          };
-
-          checkAndOrder(flour, s.flourROP, s.flourOrderQty, 'flour');
-          checkAndOrder(sugar, s.sugarROP, s.sugarOrderQty, 'sugar');
-          checkAndOrder(eggs, s.eggsROP, s.eggsOrderQty, 'eggs');
-          checkAndOrder(cocoa, s.cocoaROP, s.cocoaOrderQty, 'cocoa');
-
-          const updatedContracts = s.contracts.map(c => {
-            if (c.status === 'pending' && (s.tick + 1) >= c.appearsAtDay) {
-              return { ...c, status: 'offered' as const };
-            }
-            return c;
-          });
-
-          let contractRevenueThisTick = 0;
-          let totalContractDemanded = 0;
-          let totalContractDelivered = 0;
-
-          const activeContracts = updatedContracts.filter(
-            c => c.status === 'accepted' && s.tick >= c.beginsAtDay && s.tick <= c.endsAtDay
-          );
-          activeContracts.forEach(c => {
-            const demand = c.dailyDemand;
-            totalContractDemanded += demand;
-            const delivered = Math.min(inventory, demand);
-            inventory -= delivered;
-            contractRevenueThisTick += delivered * c.pricePerUnit;
-            totalContractDelivered += delivered;
-            c.deliveredCount += delivered;
-            c.demandedCount += demand;
-          });
-
-          let contractPenaltiesThisTick = 0;
-          const finalContracts = updatedContracts.map(c => {
-            if (c.status === 'accepted' && s.tick === c.endsAtDay) {
-              const fillRate = c.demandedCount > 0 ? (c.deliveredCount / c.demandedCount) : 0;
-              if (fillRate < c.fillRateRequired / 100) {
-                contractPenaltiesThisTick += c.fillRatePenalty;
-              }
-              return { ...c, status: 'finished' as const };
-            }
-            return c;
-          });
-
-          const calculatedDemands = calculateDemand(s.tick, 0, event);
-          const demand = calculatedDemands['standard'] || 100;
-          const sold = Math.min(inventory, demand);
-          const stockout = demand - sold;
-          inventory -= sold;
-
-          const salesRevenueThisTick = sold * SELLING_PRICE;
-          const backorderCost = stockout * BACKORDER_PENALTY;
-          const holdingCost = inventory * STORAGE_COST;
-          const totalActiveMachines =
-            (s.stations.mixing?.active ?? 0) + (s.stations.bottling?.active ?? 0) +
-            (s.stations.icing?.active ?? 0) + (s.stations.packaging?.active ?? 0);
-          const machineCostThisTick = totalActiveMachines * 50;
-
-          const totalCostsThisTick = productionCostThisTick + rawMatOrderCost + holdingCost + backorderCost + machineCostThisTick + contractPenaltiesThisTick;
-          const newSalesRevenue = s.salesRevenue + salesRevenueThisTick;
-          const newContractRevenue = s.contractRevenue + contractRevenueThisTick;
-          const newTotalCostsPaid = s.totalCostsPaid + totalCostsThisTick;
-          const totalCash = s.initialCash + newSalesRevenue + newContractRevenue - newTotalCostsPaid;
-
-          const totalDayDemanded = totalContractDemanded + demand;
-          const totalDayDelivered = totalContractDelivered + sold;
-          const serviceLevelIndex = totalDayDemanded > 0 ? (totalDayDelivered / totalDayDemanded) : 1;
-          const nextSatisfaction = Math.max(0, Math.min(100, Math.round((s.satisfaction * 0.9) + (serviceLevelIndex * 10))));
-
-          setGameState({
-            ...s,
-            balance: totalCash,
-            salesRevenue: newSalesRevenue,
-            contractRevenue: newContractRevenue,
-            totalCostsPaid: newTotalCostsPaid,
-            inventory,
-            flourStock: flour,
-            sugarStock: sugar,
-            eggsStock: eggs,
-            cocoaStock: cocoa,
-            deliveries: newDeliveries,
-            contracts: finalContracts,
-            tick: s.tick + 1,
-            lastDemand: demand,
-            lastSold: sold,
-            lastStockout: stockout,
-            lastRevenue: salesRevenueThisTick + contractRevenueThisTick,
-            satisfaction: nextSatisfaction,
-            ropFiredThisTick: ropFired
-          });
-
-          if (totalCash !== s.balance) {
-            setCashFlash(totalCash > s.balance ? 'gain' : 'loss');
-            setTimeout(() => setCashFlash(null), 600);
-          }
-
-          if (session.id && currentTeam.id) {
-            lastWrittenStateRef.current = {
-              balance: totalCash,
-              flourStock: flour,
-              sugarStock: sugar,
-              eggsStock: eggs,
-              cocoaStock: cocoa,
-              satisfaction: nextSatisfaction,
-              tick: s.tick + 1,
-            };
-
-            if (isDirectPlay) {
-              updateTeamStateRef.current(currentTeam.id, {
-                balance: totalCash,
-                inventory: { standard: inventory },
-                flourStock: flour,
-                sugarStock: sugar,
-                eggsStock: eggs,
-                cocoaStock: cocoa,
-                deliveries: newDeliveries,
-                contracts: finalContracts,
-                salesRevenue: newSalesRevenue,
-                contractRevenue: newContractRevenue,
-                totalCostsPaid: newTotalCostsPaid,
-                tick: s.tick + 1,
-                satisfaction: nextSatisfaction,
-              });
-              updateSessionRef.current({
-                currentRound: s.tick + 1,
-                status: (s.tick + 1) > 365 ? 'ended' : 'active'
-              });
-            } else {
-              setDoc(
-                doc(db, `sessions/${session.id}/teams/${currentTeam.id}`),
-                {
-                  balance: totalCash,
-                  inventory: { standard: inventory },
-                  flourStock: flour,
-                  sugarStock: sugar,
-                  eggsStock: eggs,
-                  cocoaStock: cocoa,
-                  deliveries: newDeliveries,
-                  contracts: finalContracts,
-                  salesRevenue: newSalesRevenue,
-                  contractRevenue: newContractRevenue,
-                  totalCostsPaid: newTotalCostsPaid,
-                  tick: s.tick + 1,
-                  satisfaction: nextSatisfaction,
-                  lastUpdated: serverTimestamp()
-                },
-                { merge: true }
-              ).catch(console.error);
-            }
-          }
-        } catch (err) {
-          console.error('Tick error:', err);
-        }
-      }, 20000);
 
       return () => {
         if (intervalRef.current) clearInterval(intervalRef.current);
-        if (tickIntervalRef.current) clearInterval(tickIntervalRef.current);
       };
     } else {
       if (intervalRef.current) clearInterval(intervalRef.current);
-      if (tickIntervalRef.current) clearInterval(tickIntervalRef.current);
     }
   }, [gameRunning]);
 
@@ -722,6 +908,8 @@ export function StudentDashboard() {
             stations: { ...sts, [stationId]: { ...st, owned: (st.owned ?? 0) + 1, active: (st.active ?? 0) + 1 } }
           };
         });
+        setUpgradeCelebration({ active: true, station: name });
+        setTimeout(() => setUpgradeCelebration(null), 1200);
         showToast(`Purchased a new ${name}!`);
       } catch (e) {
         showToast("Error purchasing machine.");
@@ -1292,6 +1480,37 @@ export function StudentDashboard() {
         
         {/* Left Side Controls Panel */}
         <div className="space-y-3 flex flex-col h-full min-h-0">
+
+          {/* Next Goal Milestone Panel */}
+          <div className="bg-[#fffbeb] border-[3px] border-[#4a2c11] rounded-xl shadow-[0_3px_0_#4a2c11] p-2.5 flex flex-col gap-1 shrink-0 relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-full h-1 bg-amber-400" />
+            <div className="flex justify-between items-center text-[10px] uppercase tracking-wider font-extrabold text-[#8c7662]">
+              <span>🎯 Next Unlock Target</span>
+              <span className="text-[#d97706] animate-pulse">Goal Active</span>
+            </div>
+            
+            <div className="flex justify-between items-end mt-0.5">
+              <div className="text-left">
+                <span className="text-xs font-black uppercase text-[#4a2c11] block leading-none">{nextGoal.title}</span>
+                <span className="text-[9px] text-[#8c7662] block mt-1">{nextGoal.description}</span>
+              </div>
+              <div className="text-right shrink-0">
+                <span className="text-xs font-mono font-black text-[#d97706] block leading-none">{nextGoal.statusText}</span>
+                <span className="text-[8px] uppercase tracking-wider font-bold text-gray-400 block mt-1">{nextGoal.benefitText}</span>
+              </div>
+            </div>
+            
+            {/* Progress Bar */}
+            <div className="w-full h-2.5 bg-[#f5efe0] border-2 border-[#4a2c11] rounded-full overflow-hidden mt-1 relative">
+              <motion.div 
+                className="h-full bg-gradient-to-r from-amber-400 to-amber-600"
+                style={{ width: `${nextGoal.progress}%` }} 
+              />
+              <span className="absolute inset-0 flex items-center justify-center text-[7.5px] font-black uppercase text-[#4a2c11] drop-shadow-sm">
+                {nextGoal.progress.toFixed(0)}% Completed
+              </span>
+            </div>
+          </div>
           
           {/* Panel 1: Raw Material Management */}
           <div className="bg-white border-[3px] border-[#4a2c11] rounded-xl shadow-[0_3px_0_#4a2c11] overflow-hidden flex flex-col min-h-0 flex-1">
@@ -1471,7 +1690,12 @@ export function StudentDashboard() {
                 <tbody className="divide-y divide-dashed divide-[#e6ccb2] text-[12px] font-extrabold">
                   {/* Mixing */}
                   <tr>
-                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11]">🥣 Mixing</td>
+                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11] relative">
+                      🥣 Mixing
+                      {mixingCap === activeCapMin && mixingRunning > 0 && (
+                        <span className="absolute -top-1 left-20 px-1 py-0.25 bg-red-100 text-[#c62828] text-[7.5px] font-black border border-[#c62828] rounded animate-pulse whitespace-nowrap">⚠️ BOTTLENECK</span>
+                      )}
+                    </td>
                     <td className="py-[1px]">
                       <div className="qty-control justify-center">
                         <button onClick={() => setMixingRunning(p => Math.max(0, p - 1))} className="qty-control-btn">-</button>
@@ -1508,10 +1732,15 @@ export function StudentDashboard() {
                       </span>
                     </td>
                   </tr>
-
+ 
                   {/* Baking */}
                   <tr>
-                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11]">🔥 Baking</td>
+                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11] relative">
+                      🔥 Baking
+                      {bottlingCap === activeCapMin && bakingRunning > 0 && (
+                        <span className="absolute -top-1 left-20 px-1 py-0.25 bg-red-100 text-[#c62828] text-[7.5px] font-black border border-[#c62828] rounded animate-pulse whitespace-nowrap">⚠️ BOTTLENECK</span>
+                      )}
+                    </td>
                     <td className="py-[1px]">
                       <div className="qty-control justify-center">
                         <button onClick={() => setBakingRunning(p => Math.max(0, p - 1))} className="qty-control-btn">-</button>
@@ -1548,10 +1777,15 @@ export function StudentDashboard() {
                       </span>
                     </td>
                   </tr>
-
+ 
                   {/* Icing */}
                   <tr>
-                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11]">🧁 Icing</td>
+                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11] relative">
+                      🧁 Icing
+                      {icingCap === activeCapMin && icingRunning > 0 && (
+                        <span className="absolute -top-1 left-20 px-1 py-0.25 bg-red-100 text-[#c62828] text-[7.5px] font-black border border-[#c62828] rounded animate-pulse whitespace-nowrap">⚠️ BOTTLENECK</span>
+                      )}
+                    </td>
                     <td className="py-[1px]">
                       <div className="qty-control justify-center">
                         <button onClick={() => setIcingRunning(p => Math.max(0, p - 1))} className="qty-control-btn">-</button>
@@ -1588,10 +1822,15 @@ export function StudentDashboard() {
                       </span>
                     </td>
                   </tr>
-
+ 
                   {/* Packaging */}
                   <tr>
-                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11]">📦 Packaging</td>
+                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11] relative">
+                      📦 Packaging
+                      {packagingCap === activeCapMin && packingRunning > 0 && (
+                        <span className="absolute -top-1 left-24 px-1 py-0.25 bg-red-100 text-[#c62828] text-[7.5px] font-black border border-[#c62828] rounded animate-pulse whitespace-nowrap">⚠️ BOTTLENECK</span>
+                      )}
+                    </td>
                     <td className="py-[1px]">
                       <div className="qty-control justify-center">
                         <button onClick={() => setPackingRunning(p => Math.max(0, p - 1))} className="qty-control-btn">-</button>
@@ -1631,6 +1870,30 @@ export function StudentDashboard() {
                 </tbody>
               </table>
 
+              {/* Live Workfloor Statistics */}
+              <div className="mt-2 pt-2 border-t border-[#4a2c11]/15 grid grid-cols-3 gap-1.5 text-center bg-[#fcfaf7] p-1.5 rounded-lg border-2 border-[#e6ccb2] select-none">
+                <div className="text-left flex flex-col justify-center leading-tight">
+                  <span className="text-[8px] uppercase tracking-wider text-[#8a7360] font-bold">Muffins/sec</span>
+                  <span className="text-xs font-black font-mono text-[#4a2c11] mt-0.5">
+                    {displayMuffinsPerSec.toFixed(1)}
+                  </span>
+                </div>
+                
+                <div className="text-left flex flex-col justify-center leading-tight border-x border-[#e6ccb2] px-1.5">
+                  <span className="text-[8px] uppercase tracking-wider text-[#8a7360] font-bold">Income/sec</span>
+                  <span className={`text-xs font-black font-mono mt-0.5 ${displayIncomePerSec >= 0 ? 'text-emerald-700' : 'text-red-650'}`}>
+                    {displayIncomePerSec >= 0 ? '+' : ''}₹{displayIncomePerSec.toFixed(1)}
+                  </span>
+                </div>
+
+                <div className="text-left flex flex-col justify-center leading-tight pl-1.5">
+                  <span className="text-[8px] uppercase tracking-wider text-[#8a7360] font-bold">Efficiency</span>
+                  <span className="text-xs font-black font-mono text-[#0288d1] mt-0.5">
+                    {displayEfficiency.toFixed(0)}%
+                  </span>
+                </div>
+              </div>
+ 
               <button 
                 onClick={handleApplyOperations}
                 className="muffin-btn bg-[#9f7eb8] border-[#4a2c11] hover:bg-[#8663a0] active:translate-y-0.5 block w-full text-center"
@@ -1677,6 +1940,9 @@ export function StudentDashboard() {
                   bakingRunning={bakingRunning}
                   icingRunning={icingRunning} 
                   packingRunning={packingRunning} 
+                  onCupcakeProduced={() => {
+                    addFloatingText("+1 cupcake", "#00c853", window.innerWidth * 0.75, window.innerHeight * 0.70);
+                  }}
                 />
               </div>
             </div>
@@ -2041,7 +2307,16 @@ export function StudentDashboard() {
                 {/* Contracts Offered */}
                 <div>
                   <h4 className="text-[10px] uppercase font-black tracking-wider text-[#8c7662] mb-2">Offered Deals</h4>
-                  {activeTeam.contracts?.filter(c => c.status === 'offered').length === 0 ? (
+                  {displayBalance < 2500000 ? (
+                    <div className="p-4 bg-[#f1f5f9]/80 border-2 border-dashed border-slate-400 rounded-xl text-center flex flex-col items-center justify-center gap-1.5">
+                      <span className="text-2xl">🔒</span>
+                      <span className="text-xs font-black uppercase text-[#4a2c11]">Locked until ₹2,500,000 corporate value</span>
+                      <span className="text-[10px] text-gray-500">Currently: ₹{displayBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })} / ₹2,500,000</span>
+                      <div className="w-full max-w-xs h-2 bg-slate-200 border border-slate-400 rounded-full overflow-hidden mt-1">
+                        <div className="h-full bg-slate-500" style={{ width: `${Math.min(100, (displayBalance / 2500000) * 100)}%` }} />
+                      </div>
+                    </div>
+                  ) : activeTeam.contracts?.filter(c => c.status === 'offered').length === 0 ? (
                     <div className="p-3 border-2 border-dashed border-[#e6ccb2] rounded-xl text-center text-xs text-gray-500">
                       No distribution contract proposals offered currently.
                     </div>
@@ -2127,6 +2402,53 @@ export function StudentDashboard() {
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* Floating texts */}
+      <div className="fixed inset-0 pointer-events-none z-[9999]">
+        {floatingTexts.map(t => (
+          <motion.div
+            key={t.id}
+            initial={{ opacity: 1, y: t.y, x: t.x - 50, scale: 0.8 }}
+            animate={{ opacity: 0, y: t.y - 100, scale: 1.2 }}
+            transition={{ duration: 1.2, ease: "easeOut" }}
+            className="absolute font-sans font-black text-lg select-none"
+            style={{ color: t.color, textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}
+          >
+            {t.text}
+          </motion.div>
+        ))}
+      </div>
+
+      {/* Upgrade Celebration Overlay */}
+      <AnimatePresence>
+        {upgradeCelebration && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 pointer-events-none z-[9999] flex items-center justify-center"
+          >
+            {/* Soft flashing background */}
+            <motion.div 
+              initial={{ opacity: 0.4 }}
+              animate={{ opacity: 0 }}
+              className="absolute inset-0 bg-[#ffd54f]"
+              transition={{ duration: 0.5 }}
+            />
+            {/* Text pop */}
+            <motion.div
+              initial={{ scale: 0.5, y: 50 }}
+              animate={{ scale: [1, 1.2, 1], y: -50 }}
+              transition={{ duration: 0.8, ease: "easeOut" }}
+              className="bg-white border-4 border-[#4a2c11] p-4 rounded-2xl shadow-2xl text-center flex flex-col items-center gap-1 font-sans font-black uppercase text-[#4a2c11] border-dashed"
+            >
+              <span className="text-4xl animate-bounce">⚡ UPGRADED ⚡</span>
+              <span className="text-xs text-[#8c7662]">New {upgradeCelebration.station} Acquired!</span>
+              <span className="text-[10px] text-emerald-600 font-extrabold">+Production Capacity Increased!</span>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
 
