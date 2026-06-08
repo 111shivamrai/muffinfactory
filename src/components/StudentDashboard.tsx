@@ -724,6 +724,93 @@ export function StudentDashboard() {
     }
   }, [gameState, session]);
 
+  const handleDayTick = () => {
+    const s = stateRef.current;
+    const session = sessionRef.current;
+    const currentTeam = currentTeamRef.current;
+    const isDirectPlay = isDirectPlayRef.current;
+
+    if (!s || !session || !currentTeam) return;
+
+    try {
+      if (s.tick >= 365) {
+        setGameRunning(false);
+        setDismissEndedModal(false);
+        if (session.id && currentTeam.id) {
+          if (isDirectPlay) {
+            updateSessionRef.current({ status: 'ended' });
+          } else {
+            updateDoc(doc(db, `sessions/${session.id}/teams/${currentTeam.id}`), {
+              status: 'ended'
+            }).catch(console.error);
+          }
+        }
+        return;
+      }
+
+      const nextState = getNextGameState(s, session);
+      setGameState(nextState);
+      playBeep(440, 'sine', 0.05);
+
+      if (session.id && currentTeam.id) {
+        lastWrittenStateRef.current = {
+          balance: nextState.balance,
+          flourStock: nextState.flourStock,
+          sugarStock: nextState.sugarStock,
+          eggsStock: nextState.eggsStock,
+          cocoaStock: nextState.cocoaStock,
+          satisfaction: nextState.satisfaction,
+          tick: nextState.tick,
+        };
+
+        if (isDirectPlay) {
+          updateTeamStateRef.current(currentTeam.id, {
+            balance: nextState.balance,
+            inventory: { standard: nextState.inventory },
+            flourStock: nextState.flourStock,
+            sugarStock: nextState.sugarStock,
+            eggsStock: nextState.eggsStock,
+            cocoaStock: nextState.cocoaStock,
+            deliveries: nextState.deliveries,
+            contracts: nextState.contracts,
+            salesRevenue: nextState.salesRevenue,
+            contractRevenue: nextState.contractRevenue,
+            totalCostsPaid: nextState.totalCostsPaid,
+            tick: nextState.tick,
+            satisfaction: nextState.satisfaction,
+          });
+          updateSessionRef.current({
+            currentRound: nextState.tick,
+            status: nextState.tick > 365 ? 'ended' : 'active'
+          });
+        } else {
+          setDoc(
+            doc(db, `sessions/${session.id}/teams/${currentTeam.id}`),
+            {
+              balance: nextState.balance,
+              inventory: { standard: nextState.inventory },
+              flourStock: nextState.flourStock,
+              sugarStock: nextState.sugarStock,
+              eggsStock: nextState.eggsStock,
+              cocoaStock: nextState.cocoaStock,
+              deliveries: nextState.deliveries,
+              contracts: nextState.contracts,
+              salesRevenue: nextState.salesRevenue,
+              contractRevenue: nextState.contractRevenue,
+              totalCostsPaid: nextState.totalCostsPaid,
+              tick: nextState.tick,
+              satisfaction: nextState.satisfaction,
+              lastUpdated: serverTimestamp()
+            },
+            { merge: true }
+          ).catch(console.error);
+        }
+      }
+    } catch (err) {
+      console.error('Tick error:', err);
+    }
+  };
+
   // ─── MAIN SIMULATION ENGINE — SINGLE 1-SECOND INTERVAL ───
   useEffect(() => {
     if (gameRunning) {
@@ -733,94 +820,7 @@ export function StudentDashboard() {
       intervalRef.current = setInterval(() => {
         setCountdown(prev => {
           if (prev <= 1) {
-            // Day tick!
-            const s = stateRef.current;
-            const session = sessionRef.current;
-            const currentTeam = currentTeamRef.current;
-            const isDirectPlay = isDirectPlayRef.current;
-
-            if (!s || !session || !currentTeam) return tickDuration;
-
-            try {
-              if (s.tick >= 365) {
-                setGameRunning(false);
-                setDismissEndedModal(false);
-                if (session.id && currentTeam.id) {
-                  if (isDirectPlay) {
-                    updateSessionRef.current({ status: 'ended' });
-                  } else {
-                    updateDoc(doc(db, `sessions/${session.id}/teams/${currentTeam.id}`), {
-                      status: 'ended'
-                    }).catch(console.error);
-                  }
-                }
-                return tickDuration;
-              }
-
-              const nextState = getNextGameState(s, session);
-              setGameState(nextState);
-              playBeep(440, 'sine', 0.05);
-
-
-
-              if (session.id && currentTeam.id) {
-                lastWrittenStateRef.current = {
-                  balance: nextState.balance,
-                  flourStock: nextState.flourStock,
-                  sugarStock: nextState.sugarStock,
-                  eggsStock: nextState.eggsStock,
-                  cocoaStock: nextState.cocoaStock,
-                  satisfaction: nextState.satisfaction,
-                  tick: nextState.tick,
-                };
-
-                if (isDirectPlay) {
-                  updateTeamStateRef.current(currentTeam.id, {
-                    balance: nextState.balance,
-                    inventory: { standard: nextState.inventory },
-                    flourStock: nextState.flourStock,
-                    sugarStock: nextState.sugarStock,
-                    eggsStock: nextState.eggsStock,
-                    cocoaStock: nextState.cocoaStock,
-                    deliveries: nextState.deliveries,
-                    contracts: nextState.contracts,
-                    salesRevenue: nextState.salesRevenue,
-                    contractRevenue: nextState.contractRevenue,
-                    totalCostsPaid: nextState.totalCostsPaid,
-                    tick: nextState.tick,
-                    satisfaction: nextState.satisfaction,
-                  });
-                  updateSessionRef.current({
-                    currentRound: nextState.tick,
-                    status: nextState.tick > 365 ? 'ended' : 'active'
-                  });
-                } else {
-                  setDoc(
-                    doc(db, `sessions/${session.id}/teams/${currentTeam.id}`),
-                    {
-                      balance: nextState.balance,
-                      inventory: { standard: nextState.inventory },
-                      flourStock: nextState.flourStock,
-                      sugarStock: nextState.sugarStock,
-                      eggsStock: nextState.eggsStock,
-                      cocoaStock: nextState.cocoaStock,
-                      deliveries: nextState.deliveries,
-                      contracts: nextState.contracts,
-                      salesRevenue: nextState.salesRevenue,
-                      contractRevenue: nextState.contractRevenue,
-                      totalCostsPaid: nextState.totalCostsPaid,
-                      tick: nextState.tick,
-                      satisfaction: nextState.satisfaction,
-                      lastUpdated: serverTimestamp()
-                    },
-                    { merge: true }
-                  ).catch(console.error);
-                }
-              }
-            } catch (err) {
-              console.error('Tick error:', err);
-            }
-
+            setTimeout(handleDayTick, 0);
             return tickDuration;
           }
           return prev - 1;
@@ -1513,12 +1513,27 @@ export function StudentDashboard() {
 
           {/* Direct Play/Sandbox toggle */}
           {isDirectPlay && (
-            <button 
-              onClick={() => { playBeep(329, 'sine', 0.1); setIsDirectPlay(false); }}
-              className="bg-red-650 text-white text-[10px] px-3 py-2 uppercase rounded-lg border-2 border-[#4a2c11] shadow-[0_2px_0_#4a2c11] hover:bg-red-700 active:translate-y-0.5"
-            >
-              Exit Sandbox
-            </button>
+            <div className="flex gap-1.5">
+              <button 
+                onClick={() => { 
+                  if (window.confirm("Restart the Sandbox? This will reset all your cash, machines, and day progression back to Day 1.")) {
+                    playBeep(220, 'sawtooth', 0.1);
+                    resetDirectSession();
+                    setGameState(null); // Force StudentDashboard to reinitialize gameState
+                    setDismissEndedModal(false);
+                  }
+                }}
+                className="bg-amber-600 text-white text-[10.5px] px-3 py-2 uppercase rounded-lg border-2 border-[#4a2c11] shadow-[0_2px_0_#4a2c11] hover:bg-amber-700 active:translate-y-0.5 font-black tracking-wider transition-all"
+              >
+                Restart Sandbox
+              </button>
+              <button 
+                onClick={() => { playBeep(329, 'sine', 0.1); setIsDirectPlay(false); }}
+                className="bg-red-600 text-white text-[10.5px] px-3 py-2 uppercase rounded-lg border-2 border-[#4a2c11] shadow-[0_2px_0_#4a2c11] hover:bg-red-750 active:translate-y-0.5 font-black tracking-wider transition-all"
+              >
+                Exit Sandbox
+              </button>
+            </div>
           )}
         </div>
       </header>
