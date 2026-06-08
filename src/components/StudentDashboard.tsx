@@ -1150,29 +1150,29 @@ export function StudentDashboard() {
           gap: 5px;
         }
         .header-pill {
-          min-height: 44px;
-          padding: 4px 14px;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          border: 2.5px solid #4a2c11;
-          border-radius: 10px;
-          font-size: 13px;
-          font-weight: 800;
-          box-shadow: 0 3px 0 #4a2c11;
-          background-color: #fff;
-        }
-        .header-btn {
-          min-height: 44px;
-          padding: 4px 14px;
+          min-height: 38px;
+          padding: 3px 10px;
           display: flex;
           align-items: center;
           gap: 6px;
           border: 2.5px solid #4a2c11;
           border-radius: 10px;
-          font-size: 13px;
+          font-size: 11.5px;
+          font-weight: 800;
+          box-shadow: 0 2.5px 0 #4a2c11;
+          background-color: #fff;
+        }
+        .header-btn {
+          min-height: 38px;
+          padding: 3px 10px;
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          border: 2.5px solid #4a2c11;
+          border-radius: 10px;
+          font-size: 11.5px;
           font-weight: 900;
-          box-shadow: 0 3px 0 #4a2c11;
+          box-shadow: 0 2.5px 0 #4a2c11;
           cursor: pointer;
           transition: transform 0.08s, box-shadow 0.08s;
           text-transform: uppercase;
@@ -1183,15 +1183,15 @@ export function StudentDashboard() {
           box-shadow: 0 1px 0 #4a2c11;
         }
         .header-icon-btn {
-          width: 44px;
-          height: 44px;
+          width: 38px;
+          height: 38px;
           display: flex;
           align-items: center;
           justify-content: center;
           border: 2.5px solid #4a2c11;
           border-radius: 10px;
-          font-size: 16px;
-          box-shadow: 0 3px 0 #4a2c11;
+          font-size: 14px;
+          box-shadow: 0 2.5px 0 #4a2c11;
           cursor: pointer;
           transition: transform 0.08s, box-shadow 0.08s;
           background-color: #ffffff;
@@ -1385,17 +1385,17 @@ export function StudentDashboard() {
       {toastMsg && <div className="dashboard-toast">🧁 {toastMsg}</div>}
 
       {/* ─── Header Bar ─── */}
-      <header className="bg-[#fceeed] border-4 border-[#4a2c11] rounded-2xl p-2.5 px-4 mb-3 shadow-[0_3px_0_#4a2c11] flex flex-wrap justify-between items-center gap-3">
-        <div className="flex items-center gap-2.5">
-          <span className="text-4xl">🧁</span>
+      <header className="bg-[#fceeed] border-4 border-[#4a2c11] rounded-2xl p-1.5 px-3 mb-2 shadow-[0_2.5px_0_#4a2c11] flex flex-wrap justify-between items-center gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-3xl">🧁</span>
           <div className="flex flex-col justify-center leading-none">
-            <div className="text-[17px] font-black uppercase text-[#4a2c11] leading-[1] font-sans tracking-tight">Muffin Factory</div>
-            <div className="text-[17px] font-black uppercase text-[#4a2c11] leading-[1] font-sans tracking-tight">Factory</div>
-            <div className="text-[8px] font-black tracking-widest text-[#e98fa8] uppercase mt-1 leading-[1]">{isDirectPlay ? 'Solo Chef Mode' : 'Class Team Arena'}</div>
+            <div className="text-[15px] font-black uppercase text-[#4a2c11] leading-[1] font-sans tracking-tight">Muffin Factory</div>
+            <div className="text-[15px] font-black uppercase text-[#4a2c11] leading-[1] font-sans tracking-tight">Factory</div>
+            <div className="text-[7px] font-black tracking-widest text-[#e98fa8] uppercase mt-0.5 leading-[1]">{isDirectPlay ? 'Solo Chef Mode' : 'Class Team Arena'}</div>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           {/* Back to Website Button */}
           <button 
             onClick={() => { playBeep(329, 'sine', 0.1); handleExit(); }}
@@ -1439,7 +1439,7 @@ export function StudentDashboard() {
           <div className="header-pill">
             <span className="text-xl">📈</span>
             <div className="flex flex-col text-left leading-none">
-              <span className="text-[8px] font-bold text-[#8c7662] uppercase tracking-wider">Sales Revenue (Cumulative)</span>
+              <span className="text-[8px] font-bold text-[#8c7662] uppercase tracking-wider">Sales Revenue</span>
               <span className="text-[12px] font-black text-[#4db6ac] mt-0.5">₹{(gameState?.salesRevenue ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             </div>
           </div>
@@ -1557,8 +1557,10 @@ export function StudentDashboard() {
                 <tbody className="divide-y divide-dashed divide-[#e6ccb2] text-[12px] font-extrabold">
                   {/* Flour */}
                   <tr>
-                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11] whitespace-nowrap">
-                      <span>🥖</span> Flour: {Math.round(gameState?.flourStock ?? flourStock)}
+                    <td className="py-[1px] text-[11.5px] font-extrabold text-[#4a2c11] whitespace-nowrap">
+                      <div className="flex items-center gap-1.5">
+                        <span>🥖</span> Flour: {Math.round(gameState?.flourStock ?? flourStock)}
+                      </div>
                     </td>
                     <td className="py-[1px]">
                       <div className="qty-control justify-center">
@@ -1583,8 +1585,10 @@ export function StudentDashboard() {
                   
                   {/* Sugar */}
                   <tr>
-                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11] whitespace-nowrap">
-                      <span>🥣</span> Sugar: {Math.round(gameState?.sugarStock ?? sugarStock)}
+                    <td className="py-[1px] text-[11.5px] font-extrabold text-[#4a2c11] whitespace-nowrap">
+                      <div className="flex items-center gap-1.5">
+                        <span>🥣</span> Sugar: {Math.round(gameState?.sugarStock ?? sugarStock)}
+                      </div>
                     </td>
                     <td className="py-[1px]">
                       <div className="qty-control justify-center">
@@ -1609,8 +1613,10 @@ export function StudentDashboard() {
 
                   {/* Cocoa */}
                   <tr>
-                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11] whitespace-nowrap">
-                      <span>🫙</span> Cocoa: {Math.round(gameState?.cocoaStock ?? cocoaStock)}
+                    <td className="py-[1px] text-[11.5px] font-extrabold text-[#4a2c11] whitespace-nowrap">
+                      <div className="flex items-center gap-1.5">
+                        <span>🫙</span> Cocoa: {Math.round(gameState?.cocoaStock ?? cocoaStock)}
+                      </div>
                     </td>
                     <td className="py-[1px]">
                       <div className="qty-control justify-center">
@@ -1709,11 +1715,10 @@ export function StudentDashboard() {
                 <tbody className="divide-y divide-dashed divide-[#e6ccb2] text-[12px] font-extrabold">
                   {/* Mixing */}
                   <tr>
-                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11] relative">
-                      🥣 Mixing
-                      {mixingCap === activeCapMin && mixingRunning > 0 && (
-                        <span className="absolute -top-1 left-20 px-1 py-0.25 bg-red-100 text-[#c62828] text-[7.5px] font-black border border-[#c62828] rounded animate-pulse whitespace-nowrap">⚠️ BOTTLENECK</span>
-                      )}
+                    <td className="py-[1px] text-[11.5px] font-extrabold text-[#4a2c11] relative">
+                      <div className="flex items-center gap-1.5">
+                        🥣 Mixing
+                      </div>
                     </td>
                     <td className="py-[1px]">
                       <div className="qty-control justify-center">
@@ -1754,11 +1759,10 @@ export function StudentDashboard() {
  
                   {/* Baking */}
                   <tr>
-                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11] relative">
-                      🔥 Baking
-                      {bottlingCap === activeCapMin && bakingRunning > 0 && (
-                        <span className="absolute -top-1 left-20 px-1 py-0.25 bg-red-100 text-[#c62828] text-[7.5px] font-black border border-[#c62828] rounded animate-pulse whitespace-nowrap">⚠️ BOTTLENECK</span>
-                      )}
+                    <td className="py-[1px] text-[11.5px] font-extrabold text-[#4a2c11] relative">
+                      <div className="flex items-center gap-1.5">
+                        🔥 Baking
+                      </div>
                     </td>
                     <td className="py-[1px]">
                       <div className="qty-control justify-center">
@@ -1799,11 +1803,10 @@ export function StudentDashboard() {
  
                   {/* Icing */}
                   <tr>
-                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11] relative">
-                      🧁 Icing
-                      {icingCap === activeCapMin && icingRunning > 0 && (
-                        <span className="absolute -top-1 left-20 px-1 py-0.25 bg-red-100 text-[#c62828] text-[7.5px] font-black border border-[#c62828] rounded animate-pulse whitespace-nowrap">⚠️ BOTTLENECK</span>
-                      )}
+                    <td className="py-[1px] text-[11.5px] font-extrabold text-[#4a2c11] relative">
+                      <div className="flex items-center gap-1.5">
+                        🧁 Icing
+                      </div>
                     </td>
                     <td className="py-[1px]">
                       <div className="qty-control justify-center">
@@ -1844,11 +1847,10 @@ export function StudentDashboard() {
  
                   {/* Packaging */}
                   <tr>
-                    <td className="py-[1px] flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#4a2c11] relative">
-                      📦 Packaging
-                      {packagingCap === activeCapMin && packingRunning > 0 && (
-                        <span className="absolute -top-1 left-24 px-1 py-0.25 bg-red-100 text-[#c62828] text-[7.5px] font-black border border-[#c62828] rounded animate-pulse whitespace-nowrap">⚠️ BOTTLENECK</span>
-                      )}
+                    <td className="py-[1px] text-[11.5px] font-extrabold text-[#4a2c11] relative">
+                      <div className="flex items-center gap-1.5">
+                        📦 Packaging
+                      </div>
                     </td>
                     <td className="py-[1px]">
                       <div className="qty-control justify-center">
@@ -1888,30 +1890,6 @@ export function StudentDashboard() {
                   </tr>
                 </tbody>
               </table>
-
-              {/* Live Workfloor Statistics */}
-              <div className="mt-2 pt-2 border-t border-[#4a2c11]/15 grid grid-cols-3 gap-1.5 text-center bg-[#fcfaf7] p-1.5 rounded-lg border-2 border-[#e6ccb2] select-none">
-                <div className="text-left flex flex-col justify-center leading-tight">
-                  <span className="text-[8px] uppercase tracking-wider text-[#8a7360] font-bold">Muffins/sec</span>
-                  <span className="text-xs font-black font-mono text-[#4a2c11] mt-0.5">
-                    {displayMuffinsPerSec.toFixed(1)}
-                  </span>
-                </div>
-                
-                <div className="text-left flex flex-col justify-center leading-tight border-x border-[#e6ccb2] px-1.5">
-                  <span className="text-[8px] uppercase tracking-wider text-[#8a7360] font-bold">Income/sec</span>
-                  <span className={`text-xs font-black font-mono mt-0.5 ${displayIncomePerSec >= 0 ? 'text-emerald-700' : 'text-red-650'}`}>
-                    {displayIncomePerSec >= 0 ? '+' : ''}₹{displayIncomePerSec.toFixed(1)}
-                  </span>
-                </div>
-
-                <div className="text-left flex flex-col justify-center leading-tight pl-1.5">
-                  <span className="text-[8px] uppercase tracking-wider text-[#8a7360] font-bold">Efficiency</span>
-                  <span className="text-xs font-black font-mono text-[#0288d1] mt-0.5">
-                    {displayEfficiency.toFixed(0)}%
-                  </span>
-                </div>
-              </div>
  
               <button 
                 onClick={handleApplyOperations}
@@ -1959,9 +1937,6 @@ export function StudentDashboard() {
                   bakingRunning={bakingRunning}
                   icingRunning={icingRunning} 
                   packingRunning={packingRunning} 
-                  onCupcakeProduced={() => {
-                    addFloatingText("+1 cupcake", "#00c853", window.innerWidth * 0.75, window.innerHeight * 0.70);
-                  }}
                 />
               </div>
             </div>
@@ -2121,9 +2096,8 @@ export function StudentDashboard() {
                   <div style={{ marginTop: '6px' }} className="flex justify-center">
                     <svg width="90" height="60" viewBox="0 0 70 45" key={`coins-${gameState ? gameState.lastRevenue : revenueToday}`}>
                       <motion.g 
-                        transform="translate(15, 32)"
-                        initial={{ y: 15, opacity: 0, scaleY: 0 }}
-                        animate={{ y: 0, opacity: 1, scaleY: 1 }}
+                        initial={{ x: 15, y: 32 + 15, opacity: 0, scaleY: 0 }}
+                        animate={{ x: 15, y: 32, opacity: 1, scaleY: 1 }}
                         transition={{ type: "spring", stiffness: 150, damping: 10, delay: 0.05 }}
                       >
                         <ellipse cx="0" cy="4" rx="10" ry="4" fill="#ffd54f" stroke="#4a2c11" strokeWidth="1.5" />
@@ -2137,9 +2111,8 @@ export function StudentDashboard() {
                         <ellipse cx="0" cy="-12" rx="10" ry="4" fill="#ffe082" stroke="#4a2c11" strokeWidth="1.5" />
                       </motion.g>
                       <motion.g 
-                        transform="translate(35, 34)"
-                        initial={{ y: 15, opacity: 0, scaleY: 0 }}
-                        animate={{ y: 0, opacity: 1, scaleY: 1 }}
+                        initial={{ x: 35, y: 34 + 15, opacity: 0, scaleY: 0 }}
+                        animate={{ x: 35, y: 34, opacity: 1, scaleY: 1 }}
                         transition={{ type: "spring", stiffness: 150, damping: 10, delay: 0.15 }}
                       >
                         <ellipse cx="0" cy="4" rx="10" ry="4" fill="#ffd54f" stroke="#4a2c11" strokeWidth="1.5" />
@@ -2156,9 +2129,8 @@ export function StudentDashboard() {
                         <ellipse cx="0" cy="-18" rx="10" ry="4" fill="#ffe082" stroke="#4a2c11" strokeWidth="1.5" />
                       </motion.g>
                       <motion.g 
-                        transform="translate(55, 36)"
-                        initial={{ y: 15, opacity: 0, scaleY: 0 }}
-                        animate={{ y: 0, opacity: 1, scaleY: 1 }}
+                        initial={{ x: 55, y: 36 + 15, opacity: 0, scaleY: 0 }}
+                        animate={{ x: 55, y: 36, opacity: 1, scaleY: 1 }}
                         transition={{ type: "spring", stiffness: 150, damping: 10, delay: 0.25 }}
                       >
                         <ellipse cx="0" cy="4" rx="10" ry="4" fill="#ffd54f" stroke="#4a2c11" strokeWidth="1.5" />
