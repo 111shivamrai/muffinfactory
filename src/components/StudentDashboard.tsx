@@ -1271,17 +1271,17 @@ export function StudentDashboard() {
           box-shadow: 0 1px 0 #4a2c11;
         }
         .muffin-progress-bg {
-          width: 90px;
-          height: 18px;
+          width: 60px;
+          height: 10px;
           background-color: #f1ebd9;
-          border: 2.5px solid #4a2c11;
-          border-radius: 8px;
+          border: 2px solid #4a2c11;
+          border-radius: 6px;
           overflow: hidden;
           position: relative;
         }
         .muffin-progress-fill {
           height: 100%;
-          border-radius: 4px;
+          border-radius: 3px;
         }
         .blueprint-canvas {
           background-color: #d2e9f5;
@@ -1698,10 +1698,10 @@ export function StudentDashboard() {
               <table className="w-full text-left border-collapse table-fixed">
                 <colgroup>
                   <col style={{ width: '25%' }} />
-                  <col style={{ width: '32%' }} />
+                  <col style={{ width: '28%' }} />
                   <col style={{ width: '11%' }} />
                   <col style={{ width: '22%' }} />
-                  <col style={{ width: '10%' }} />
+                  <col style={{ width: '14%' }} />
                 </colgroup>
                 <thead>
                   <tr className="border-b border-[#e6ccb2] text-[9.5px] uppercase tracking-wider text-[#8a7360] font-black whitespace-nowrap">
