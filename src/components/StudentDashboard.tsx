@@ -177,6 +177,8 @@ export function StudentDashboard() {
   const sessionRef = useRef(session);
   const currentTeamRef = useRef(currentTeam);
   const isDirectPlayRef = useRef(isDirectPlay);
+  const updateSessionRef = useRef(updateSession);
+  const updateTeamStateRef = useRef(updateTeamState);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const tickIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -185,6 +187,8 @@ export function StudentDashboard() {
   useEffect(() => { sessionRef.current = session; }, [session]);
   useEffect(() => { currentTeamRef.current = currentTeam; }, [currentTeam]);
   useEffect(() => { isDirectPlayRef.current = isDirectPlay; }, [isDirectPlay]);
+  useEffect(() => { updateSessionRef.current = updateSession; }, [updateSession]);
+  useEffect(() => { updateTeamStateRef.current = updateTeamState; }, [updateTeamState]);
 
   // Cash flash animation
   const [cashFlash, setCashFlash] = useState<'gain' | 'loss' | null>(null);
@@ -355,7 +359,7 @@ export function StudentDashboard() {
       }, 1000);
 
       // Simulation tick — fires every 20 seconds, ALL logic inside, reads from refs
-      const tickTimerId = setInterval(() => {
+      tickIntervalRef.current = setInterval(() => {
         const s = stateRef.current;
         const session = sessionRef.current;
         const currentTeam = currentTeamRef.current;
@@ -369,7 +373,7 @@ export function StudentDashboard() {
             setDismissEndedModal(false);
             if (session.id && currentTeam.id) {
               if (isDirectPlay) {
-                updateSession({ status: 'ended' });
+                updateSessionRef.current({ status: 'ended' });
               } else {
                 updateDoc(doc(db, `sessions/${session.id}/teams/${currentTeam.id}`), {
                   status: 'ended'
@@ -553,7 +557,7 @@ export function StudentDashboard() {
             };
 
             if (isDirectPlay) {
-              updateTeamState(currentTeam.id, {
+              updateTeamStateRef.current(currentTeam.id, {
                 balance: totalCash,
                 inventory: { standard: inventory },
                 flourStock: flour,
@@ -568,7 +572,7 @@ export function StudentDashboard() {
                 tick: s.tick + 1,
                 satisfaction: nextSatisfaction,
               });
-              updateSession({
+              updateSessionRef.current({
                 currentRound: s.tick + 1,
                 status: (s.tick + 1) > 365 ? 'ended' : 'active'
               });
@@ -602,10 +606,11 @@ export function StudentDashboard() {
 
       return () => {
         if (intervalRef.current) clearInterval(intervalRef.current);
-        clearInterval(tickTimerId);
+        if (tickIntervalRef.current) clearInterval(tickIntervalRef.current);
       };
     } else {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      if (tickIntervalRef.current) clearInterval(tickIntervalRef.current);
     }
   }, [gameRunning]);
 
