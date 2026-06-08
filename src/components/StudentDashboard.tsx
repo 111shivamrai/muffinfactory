@@ -761,16 +761,7 @@ export function StudentDashboard() {
               setGameState(nextState);
               playBeep(440, 'sine', 0.05);
 
-              // Add floating text near Total Cash for end-of-day profit/loss
-              const profit = nextState.balance - s.balance;
-              if (profit !== 0) {
-                addFloatingText(
-                  `${profit > 0 ? '+' : '-'}₹${Math.abs(profit).toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
-                  profit > 0 ? '#34d399' : '#f87171',
-                  window.innerWidth * 0.5,
-                  100
-                );
-              }
+
 
               if (session.id && currentTeam.id) {
                 lastWrittenStateRef.current = {
@@ -1538,36 +1529,7 @@ export function StudentDashboard() {
         {/* Left Side Controls Panel */}
         <div className="space-y-3 flex flex-col h-full min-h-0">
 
-          {/* Next Goal Milestone Panel */}
-          <div className="bg-[#fffbeb] border-[3px] border-[#4a2c11] rounded-xl shadow-[0_3px_0_#4a2c11] p-2.5 flex flex-col gap-1 shrink-0 relative overflow-hidden">
-            <div className="absolute top-0 left-0 w-full h-1 bg-amber-400" />
-            <div className="flex justify-between items-center text-[10px] uppercase tracking-wider font-extrabold text-[#8c7662]">
-              <span>🎯 Next Unlock Target</span>
-              <span className="text-[#d97706] animate-pulse">Goal Active</span>
-            </div>
-            
-            <div className="flex justify-between items-end mt-0.5">
-              <div className="text-left">
-                <span className="text-xs font-black uppercase text-[#4a2c11] block leading-none">{nextGoal.title}</span>
-                <span className="text-[9px] text-[#8c7662] block mt-1">{nextGoal.description}</span>
-              </div>
-              <div className="text-right shrink-0">
-                <span className="text-xs font-mono font-black text-[#d97706] block leading-none">{nextGoal.statusText}</span>
-                <span className="text-[8px] uppercase tracking-wider font-bold text-gray-400 block mt-1">{nextGoal.benefitText}</span>
-              </div>
-            </div>
-            
-            {/* Progress Bar */}
-            <div className="w-full h-2.5 bg-[#f5efe0] border-2 border-[#4a2c11] rounded-full overflow-hidden mt-1 relative">
-              <motion.div 
-                className="h-full bg-gradient-to-r from-amber-400 to-amber-600"
-                style={{ width: `${nextGoal.progress}%` }} 
-              />
-              <span className="absolute inset-0 flex items-center justify-center text-[7.5px] font-black uppercase text-[#4a2c11] drop-shadow-sm">
-                {nextGoal.progress.toFixed(0)}% Completed
-              </span>
-            </div>
-          </div>
+
           
           {/* Panel 1: Raw Material Management */}
           <div className="bg-white border-[3px] border-[#4a2c11] rounded-xl shadow-[0_3px_0_#4a2c11] overflow-hidden flex flex-col min-h-0 flex-1">
