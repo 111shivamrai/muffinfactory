@@ -260,10 +260,10 @@ export function StudentDashboard() {
   useEffect(() => {
     if (!currentTeam || gameState) return; // only initialize once
     
-    const initialFlour = currentTeam.flourStock ?? Math.round(0.35 * (currentTeam.rawMaterials || 0));
-    const initialSugar = currentTeam.sugarStock ?? Math.round(0.25 * (currentTeam.rawMaterials || 0));
-    const initialEggs = currentTeam.eggsStock ?? Math.round(0.20 * (currentTeam.rawMaterials || 0));
-    const initialCocoa = currentTeam.cocoaStock ?? Math.round(0.20 * (currentTeam.rawMaterials || 0));
+    const initialFlour = currentTeam.flourStock ?? Math.round(0.35 * (currentTeam.rawMaterials || INITIAL_VALUES.RAW_MATERIALS));
+    const initialSugar = currentTeam.sugarStock ?? Math.round(0.25 * (currentTeam.rawMaterials || INITIAL_VALUES.RAW_MATERIALS));
+    const initialEggs = currentTeam.eggsStock ?? Math.round(0.20 * (currentTeam.rawMaterials || INITIAL_VALUES.RAW_MATERIALS));
+    const initialCocoa = currentTeam.cocoaStock ?? Math.round(0.20 * (currentTeam.rawMaterials || INITIAL_VALUES.RAW_MATERIALS));
 
     const initialState: LocalGameState = {
       balance: currentTeam.balance ?? INITIAL_VALUES.BALANCE,
@@ -329,7 +329,7 @@ export function StudentDashboard() {
     if (!currentTeam || !gameState) return;
     const last = stateRef.current;
     // If balance matches what we computed locally, this is our own write bouncing back — ignore
-    if (last && currentTeam.balance === last.balance && (currentTeam as any).tick === last.tick) return;
+    if (last && currentTeam.balance === last.balance) return;
     // External change (instructor intervention) — apply selectively
     setGameState(prev => {
       if (!prev) return prev;
@@ -342,7 +342,7 @@ export function StudentDashboard() {
         deliveries: currentTeam.deliveries ?? prev.deliveries,
       };
     });
-  }, [currentTeam?.balance, (currentTeam as any)?.tick]);
+  }, [currentTeam?.balance]);
 
   // ─── MAIN SIMULATION ENGINE — EXACT SAME PATTERN AS SodaBottlingGame ───
   useEffect(() => {
@@ -418,10 +418,11 @@ export function StudentDashboard() {
           }
 
           const bottleneck = Math.min(mixingCap, bottlingCap, icingCap, packagingCap);
-          const matLimit = Math.min(flour, sugar, cocoa);
+          const matLimit = Math.min(flour, sugar, eggs, cocoa);
           const produced = Math.min(bottleneck, matLimit);
           flour -= produced;
           sugar -= produced;
+          eggs -= produced;
           cocoa -= produced;
           const productionCostThisTick = produced * PRODUCTION_COST;
           let inventory = s.inventory + produced;
