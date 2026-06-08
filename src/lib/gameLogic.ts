@@ -18,22 +18,34 @@ export function calculateDemand(
   round: number,
   marketingSpend: number,
   event?: GameEvent | null,
-  productsList: Product[] = PRODUCTS
+  productsList: Product[] = PRODUCTS,
+  satisfaction: number = 100
 ): Record<string, number> {
-  const baseDemand = 120 + Math.floor(Math.sin(round / 5) * 20);
+  const baseDemand = 120;
   const marketingMultiplier = 1 + (Math.log10(marketingSpend + 1) / 5);
+  const reputationMultiplier = 0.5 + (satisfaction / 100);
+  const marketTrend = 1.0 + Math.sin(round / 5) * 0.2;
   
   let eventMultiplier = 1;
   if (event?.type === 'demand_surge') {
     if (event.severity === 'low') eventMultiplier = 1.3;
-    if (event.severity === 'medium') eventMultiplier = 1.6;
-    if (event.severity === 'high') eventMultiplier = 2.0;
+    if (event.severity === 'medium') eventMultiplier = 1.8;
+    if (event.severity === 'high') eventMultiplier = 2.5;
+  } else if (event?.type === 'material_shortage') {
+    eventMultiplier = 0.75;
   }
-  
+
   const demand: Record<string, number> = {};
   productsList.forEach(product => {
-    const randomness = 0.85 + Math.random() * 0.3;
-    demand[product.id] = Math.max(10, Math.floor(baseDemand * marketingMultiplier * eventMultiplier * randomness));
+    const randomVariance = 0.90 + Math.random() * 0.20;
+    demand[product.id] = Math.max(10, Math.floor(
+      baseDemand * 
+      marketingMultiplier * 
+      reputationMultiplier * 
+      marketTrend * 
+      eventMultiplier * 
+      randomVariance
+    ));
   });
   
   return demand;
@@ -271,10 +283,35 @@ export function processDecision(
   });
 
   // 2. Production Stage (Continuous flow constrained by raw materials and bottleneck capacity)
-  let mixingCap = stations.mixing.active * stations.mixing.capacityPerMachine;
-  let bottlingCap = stations.bottling.active * stations.bottling.capacityPerMachine;
-  let icingCap = stations.icing.active * stations.icing.capacityPerMachine;
-  let packagingCap = stations.packaging.active * stations.packaging.capacityPerMachine;
+  const totalMachines = 
+    (stations.mixing?.owned ?? 2) + 
+    (stations.bottling?.owned ?? 3) + 
+    (stations.icing?.owned ?? 2) + 
+    (stations.packaging?.owned ?? 1);
+
+  let milestoneTier = 0;
+  if (totalMachines >= 100) milestoneTier = 4;
+  else if (totalMachines >= 50) milestoneTier = 3;
+  else if (totalMachines >= 25) milestoneTier = 2;
+  else if (totalMachines >= 10) milestoneTier = 1;
+
+  const milestoneMultiplier = 1 + (milestoneTier * 0.5);
+
+  const trainingMultiplier = 1 + (round * 0.02);
+  const moraleMultiplier = 0.5 + (team.satisfaction / 200);
+
+  // Mixing Capacity (WorkerCapacity)
+  const workerEfficiency = 3 * trainingMultiplier * moraleMultiplier;
+  let mixingCap = Math.round((stations.mixing.active) * workerEfficiency * 18 * milestoneMultiplier);
+
+  // Oven Capacity (OvenCapacity)
+  let bottlingCap = Math.round((stations.bottling.active) * 1.33 * 18 * milestoneMultiplier);
+
+  // Icing Capacity
+  let icingCap = Math.round((stations.icing.active) * 3.05 * 18 * milestoneMultiplier);
+
+  // Packaging Capacity
+  let packagingCap = Math.round((stations.packaging.active) * 12 * 18 * milestoneMultiplier);
 
   if (event?.type === 'machine_breakdown') {
     const penaltyRatio = event.severity === 'low' ? 0.8 : event.severity === 'medium' ? 0.6 : 0.4;
@@ -287,12 +324,13 @@ export function processDecision(
   const bottleneckCapacity = Math.min(mixingCap, bottlingCap, icingCap, packagingCap);
   
   // Realized production is bottlenecked by available materials & production capacity
-  const maxProductionFromMaterials = Math.min(flour, sugar, cocoa);
+  const maxProductionFromMaterials = Math.min(flour, sugar, eggs, cocoa);
   const actualProduction = Math.min(bottleneckCapacity, maxProductionFromMaterials);
 
   // Consume materials
   flour -= actualProduction;
   sugar -= actualProduction;
+  eggs -= actualProduction;
   cocoa -= actualProduction;
 
   // Incur daily variable production charge
@@ -332,8 +370,6 @@ export function processDecision(
   // 4. Sales Phase
   // Dynamic update of contract states and offers
   const updatedContracts = contracts.map(c => {
-    // Contract becomes offered at their target appear day.
-    // We check round + 1 because this logic runs at the end of the current round to prepare the state for the next round.
     if (c.status === 'pending' && (round + 1) >= c.appearsAtDay) {
       return { ...c, status: 'offered' as const };
     }
@@ -347,6 +383,18 @@ export function processDecision(
   let totalContractDemanded = 0;
   let totalContractDelivered = 0;
 
+  const recipeMultiplier = 1.2; // Premium Recipe
+  const reputationMultiplier = 0.5 + (team.satisfaction / 100);
+  
+  let eventMultiplier = 1;
+  if (event?.type === 'demand_surge') {
+    if (event.severity === 'low') eventMultiplier = 1.3;
+    if (event.severity === 'medium') eventMultiplier = 1.8;
+    if (event.severity === 'high') eventMultiplier = 2.5;
+  } else if (event?.type === 'material_shortage') {
+    eventMultiplier = 0.75;
+  }
+
   activeContracts.forEach(c => {
     const demand = c.dailyDemand;
     totalContractDemanded += demand;
@@ -357,17 +405,20 @@ export function processDecision(
 
     c.deliveredCount += delivered;
     c.demandedCount += demand;
-    contractRevenue += delivered * c.pricePerUnit;
+    
+    // Revenue = Sold * Price * recipe * reputation * event
+    contractRevenue += Math.round(delivered * c.pricePerUnit * recipeMultiplier * reputationMultiplier * eventMultiplier);
   });
 
   // Evaluate retail (walk-in) customer demands
-  const calculatedDemands = calculateDemand(round, decision.marketingSpend, event);
+  const calculatedDemands = calculateDemand(round, decision.marketingSpend, event, PRODUCTS, team.satisfaction);
   const retailDemand = calculatedDemands['standard'] || 100;
 
   const deliveredRetail = Math.min(finishedGoodsStock, retailDemand);
   finishedGoodsStock -= deliveredRetail;
   
-  const retailRevenue = deliveredRetail * standardProduct.sellingPrice;
+  // Revenue = Sold * Price * recipe * reputation * event
+  const retailRevenue = Math.round(deliveredRetail * standardProduct.sellingPrice * recipeMultiplier * reputationMultiplier * eventMultiplier);
   const missedRetailDemand = retailDemand - deliveredRetail;
 
   const totalRevenue = contractRevenue + retailRevenue;
@@ -376,7 +427,6 @@ export function processDecision(
   const holdingCharges = finishedGoodsStock * parameters.storageCost; // $1.00 per bottle remaining
   
   // 6. Interest Compounding
-  // Earn 10% interest or pay 10% overdraft penalty on current balance divided by 365 daily steps
   const interestRate = 0.10 / 365;
   const compoundingInterest = team.balance * interestRate;
 
@@ -393,7 +443,15 @@ export function processDecision(
     }
   });
 
-  const totalOpex = productionCost + rawMaterialOrderCost + holdingCharges + contractPenalties + (missedRetailDemand * parameters.backorderPenalty);
+  // Dynamic Difficulty Multiplier to adjust Opex costs slightly based on balance
+  const difficultyMultiplier = 1 + Math.log10(Math.max(1, (team.balance || 2000000) / 1000000));
+
+  const opexProduction = Math.round(productionCost * difficultyMultiplier);
+  const opexRawMaterial = Math.round(rawMaterialOrderCost * difficultyMultiplier);
+  const opexHolding = Math.round(holdingCharges * difficultyMultiplier);
+  const opexBackorder = Math.round(missedRetailDemand * parameters.backorderPenalty * difficultyMultiplier);
+
+  const totalOpex = opexProduction + opexRawMaterial + opexHolding + contractPenalties + opexBackorder;
   const profit = totalRevenue - totalOpex + compoundingInterest;
   const nextBalance = team.balance + profit;
 

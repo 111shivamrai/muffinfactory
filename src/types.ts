@@ -196,10 +196,10 @@ export const INITIAL_VALUES = {
 };
 
 export const DEFAULT_STATIONS = {
-  mixing: { owned: 2, active: 2, capacityPerMachine: 54, purchasePrice: 50000 },
-  bottling: { owned: 3, active: 3, capacityPerMachine: 24, purchasePrice: 75000 },
-  icing: { owned: 2, active: 1, capacityPerMachine: 55, purchasePrice: 60000 },
-  packaging: { owned: 1, active: 1, capacityPerMachine: 216, purchasePrice: 40000 }
+  mixing: { owned: 2, active: 2, capacityPerMachine: 54, purchasePrice: 62720 },
+  bottling: { owned: 3, active: 3, capacityPerMachine: 24, purchasePrice: 114066 },
+  icing: { owned: 2, active: 1, capacityPerMachine: 55, purchasePrice: 83544 },
+  packaging: { owned: 1, active: 1, capacityPerMachine: 216, purchasePrice: 46000 }
 };
 
 export interface License {

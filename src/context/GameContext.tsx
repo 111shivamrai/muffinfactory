@@ -1474,6 +1474,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const buyMachine = async (stationId: 'mixing' | 'bottling' | 'packaging' | 'icing') => {
+    const baseCostMap = { mixing: 50000, bottling: 75000, icing: 60000, packaging: 40000 };
+    const growthRateMap = { mixing: 1.12, bottling: 1.15, icing: 1.18, packaging: 1.15 };
+
     if (isDirectPlay) {
       setDirectTeam(t => {
         const stations = t.stations || JSON.parse(JSON.stringify(DEFAULT_STATIONS));
@@ -1486,13 +1489,16 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           alert(`Insufficient funds! Total Cash is too low. Machine costs ₹${actualPrice.toLocaleString()}.`);
           return t;
         }
+        const nextOwned = st.owned + 1;
+        const nextPrice = Math.round(baseCostMap[stationId] * Math.pow(growthRateMap[stationId], nextOwned));
+
         const updatedStations = {
           ...stations,
           [stationId]: {
             ...st,
-            owned: st.owned + 1,
+            owned: nextOwned,
             active: st.active + 1,
-            purchasePrice: actualPrice // Auto-heal stale data
+            purchasePrice: nextPrice
           }
         };
         return {
@@ -1515,13 +1521,16 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       alert(`Insufficient funds! Total Cash is too low. Machine costs ₹${actualPrice.toLocaleString()}.`);
       return;
     }
+    const nextOwned = st.owned + 1;
+    const nextPrice = Math.round(baseCostMap[stationId] * Math.pow(growthRateMap[stationId], nextOwned));
+
     const updatedStations = {
       ...stations,
       [stationId]: {
         ...st,
-        owned: st.owned + 1,
+        owned: nextOwned,
         active: st.active + 1,
-        purchasePrice: actualPrice // Auto-heal stale data
+        purchasePrice: nextPrice
       }
     };
     await updateDoc(teamRef, {

@@ -23,7 +23,7 @@ import {
   Pause
 } from 'lucide-react';
 
-import { RoundResult, Contract, DEFAULT_STATIONS, Delivery, INITIAL_VALUES, DEFAULT_PARAMETERS } from '../types';
+import { RoundResult, Contract, DEFAULT_STATIONS, Delivery, INITIAL_VALUES, DEFAULT_PARAMETERS, PRODUCTS } from '../types';
 import { db } from '../firebase';
 import { doc, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { AnimatedFactoryFloor } from "./AnimatedFactoryFloor";
@@ -155,10 +155,35 @@ export function getNextGameState(
     else if (item === 'cocoa') cocoa += d.quantity;
   });
 
-  let mixingCap = (s.stations.mixing?.active ?? 2) * (s.stations.mixing?.capacityPerMachine ?? 54);
-  let bottlingCap = (s.stations.bottling?.active ?? 3) * (s.stations.bottling?.capacityPerMachine ?? 24);
-  let icingCap = (s.stations.icing?.active ?? 1) * (s.stations.icing?.capacityPerMachine ?? 55);
-  let packagingCap = (s.stations.packaging?.active ?? 1) * (s.stations.packaging?.capacityPerMachine ?? 216);
+  const totalMachines = 
+    (s.stations.mixing?.owned ?? 2) + 
+    (s.stations.bottling?.owned ?? 3) + 
+    (s.stations.icing?.owned ?? 2) + 
+    (s.stations.packaging?.owned ?? 1);
+
+  let milestoneTier = 0;
+  if (totalMachines >= 100) milestoneTier = 4;
+  else if (totalMachines >= 50) milestoneTier = 3;
+  else if (totalMachines >= 25) milestoneTier = 2;
+  else if (totalMachines >= 10) milestoneTier = 1;
+
+  const milestoneMultiplier = 1 + (milestoneTier * 0.5);
+
+  const trainingMultiplier = 1 + (s.tick * 0.02);
+  const moraleMultiplier = 0.5 + (s.satisfaction / 200);
+
+  // Mixing Capacity (WorkerCapacity)
+  const workerEfficiency = 3 * trainingMultiplier * moraleMultiplier;
+  let mixingCap = Math.round((s.stations.mixing?.active ?? 2) * workerEfficiency * 18 * milestoneMultiplier);
+
+  // Oven Capacity (OvenCapacity)
+  let bottlingCap = Math.round((s.stations.bottling?.active ?? 3) * 1.33 * 18 * milestoneMultiplier);
+
+  // Icing Capacity
+  let icingCap = Math.round((s.stations.icing?.active ?? 1) * 3.05 * 18 * milestoneMultiplier);
+
+  // Packaging Capacity
+  let packagingCap = Math.round((s.stations.packaging?.active ?? 1) * 12 * 18 * milestoneMultiplier);
 
   if (event?.type === 'machine_breakdown') {
     const penaltyRatio = event.severity === 'low' ? 0.8 : event.severity === 'medium' ? 0.6 : 0.4;
@@ -214,6 +239,18 @@ export function getNextGameState(
   let totalContractDemanded = 0;
   let totalContractDelivered = 0;
 
+  const recipeMultiplier = 1.2; // Premium Recipe
+  const reputationMultiplier = 0.5 + (s.satisfaction / 100);
+  
+  let eventMultiplier = 1;
+  if (event?.type === 'demand_surge') {
+    if (event.severity === 'low') eventMultiplier = 1.3;
+    if (event.severity === 'medium') eventMultiplier = 1.8;
+    if (event.severity === 'high') eventMultiplier = 2.5;
+  } else if (event?.type === 'material_shortage') {
+    eventMultiplier = 0.75;
+  }
+
   const activeContracts = updatedContracts.filter(
     c => c.status === 'accepted' && s.tick >= c.beginsAtDay && s.tick <= c.endsAtDay
   );
@@ -222,7 +259,7 @@ export function getNextGameState(
     totalContractDemanded += demand;
     const delivered = Math.min(inventory, demand);
     inventory -= delivered;
-    contractRevenueThisTick += delivered * c.pricePerUnit;
+    contractRevenueThisTick += Math.round(delivered * c.pricePerUnit * recipeMultiplier * reputationMultiplier * eventMultiplier);
     totalContractDelivered += delivered;
     c.deliveredCount += delivered;
     c.demandedCount += demand;
@@ -240,21 +277,28 @@ export function getNextGameState(
     return c;
   });
 
-  const calculatedDemands = calculateDemand(s.tick, 0, event);
+  const calculatedDemands = calculateDemand(s.tick, 0, event, PRODUCTS, s.satisfaction);
   const demand = calculatedDemands['standard'] || 100;
   const sold = Math.min(inventory, demand);
   const stockout = demand - sold;
   inventory -= sold;
 
-  const salesRevenueThisTick = sold * SELLING_PRICE;
-  const backorderCost = stockout * BACKORDER_PENALTY;
-  const holdingCost = inventory * STORAGE_COST;
+  const salesRevenueThisTick = Math.round(sold * SELLING_PRICE * recipeMultiplier * reputationMultiplier * eventMultiplier);
+  
+  // Dynamic Difficulty Multiplier to adjust Opex costs slightly based on balance
+  const difficultyMultiplier = 1 + Math.log10(Math.max(1, (s.balance || 2000000) / 1000000));
+
+  const opexProduction = Math.round(productionCostThisTick * difficultyMultiplier);
+  const opexRawMaterial = Math.round(rawMatOrderCost * difficultyMultiplier);
+  const opexHolding = Math.round(inventory * STORAGE_COST * difficultyMultiplier);
+  const opexBackorder = Math.round(stockout * BACKORDER_PENALTY * difficultyMultiplier);
+  
   const totalActiveMachines =
     (s.stations.mixing?.active ?? 0) + (s.stations.bottling?.active ?? 0) +
     (s.stations.icing?.active ?? 0) + (s.stations.packaging?.active ?? 0);
-  const machineCostThisTick = totalActiveMachines * 50;
+  const machineCostThisTick = Math.round(totalActiveMachines * 50 * difficultyMultiplier);
 
-  const totalOpex = productionCostThisTick + rawMatOrderCost + holdingCost + backorderCost + machineCostThisTick + contractPenaltiesThisTick;
+  const totalOpex = opexProduction + opexRawMaterial + opexHolding + opexBackorder + machineCostThisTick + contractPenaltiesThisTick;
   const profit = (salesRevenueThisTick + contractRevenueThisTick) - totalOpex;
   const newSalesRevenue = s.salesRevenue + salesRevenueThisTick;
   const newContractRevenue = s.contractRevenue + contractRevenueThisTick;
@@ -902,10 +946,23 @@ export function StudentDashboard() {
           if (!prev) return prev;
           const sts = { ...prev.stations };
           const st = sts[stationId];
+          const nextOwned = (st?.owned ?? 0) + 1;
+          const baseCostMap = { mixing: 50000, bottling: 75000, icing: 60000, packaging: 40000 };
+          const growthRateMap = { mixing: 1.12, bottling: 1.15, icing: 1.18, packaging: 1.15 };
+          const nextPrice = Math.round(baseCostMap[stationId] * Math.pow(growthRateMap[stationId], nextOwned));
+          
           return {
             ...prev,
             balance: prev.balance - price,
-            stations: { ...sts, [stationId]: { ...st, owned: (st.owned ?? 0) + 1, active: (st.active ?? 0) + 1 } }
+            stations: { 
+              ...sts, 
+              [stationId]: { 
+                ...st, 
+                owned: nextOwned, 
+                active: (st?.active ?? 0) + 1,
+                purchasePrice: nextPrice
+              } 
+            }
           };
         });
         setUpgradeCelebration({ active: true, station: name });
