@@ -33,8 +33,8 @@ import {
   orderBy
 } from 'firebase/firestore';
 import { logSystemError } from '../utils/logger';
-import { Session, Team, Decision, RoundResult, GameStatus, INITIAL_VALUES, GameSettings, GameEvent, Product, SimulationParameters, DEFAULT_PARAMETERS, DEFAULT_STATIONS } from '../types';
-import { processDecision, getInitialContracts, getContractsForStudent } from '../lib/gameLogic';
+import { Session, Team, Decision, RoundResult, GameStatus, INITIAL_VALUES, GameSettings, GameEvent, Product, SimulationParameters, DEFAULT_PARAMETERS, DEFAULT_STATIONS, Contract } from '../types';
+import { processDecision } from '../lib/gameLogic';
 
 // Helper to add timeout to any promise
 export const withTimeout = <T,>(promise: Promise<T>, ms: number, label: string): Promise<T> =>
@@ -74,20 +74,30 @@ interface GameContextType {
   triggerEvent: (event: GameEvent | null) => Promise<void>;
   acceptContract: (contractId: string) => Promise<void>;
   abortContract: (contractId: string) => Promise<void>;
+  addInstructorContract: (data: {
+    name: string;
+    appearsAtDay: number;
+    beginsAtDay: number;
+    endsAtDay: number;
+    dailyDemand: number;
+    pricePerUnit: number;
+    fillRateRequired: number;
+    fillRatePenalty: number;
+    exitPenalty: number;
+  }) => Promise<void>;
+  removeInstructorContract: (contractId: string) => Promise<void>;
   buyMachine: (stationId: 'mixing' | 'bottling' | 'packaging' | 'icing') => Promise<void>;
   updateActiveMachines: (stationId: 'mixing' | 'bottling' | 'packaging' | 'icing', count: number) => Promise<void>;
   updateProcurementSettings: (Q: number, R: number) => Promise<void>;
-  updateProcurementSettingsEx: (settings: {
-    flourQ: number; flourR: number;
-    sugarQ: number; sugarR: number;
-    eggsQ: number; eggsR: number;
-    cocoaQ: number; cocoaR: number;
-  }) => Promise<void>;
+  updateProcurementSettingsEx: (flourQ: number, flourR: number, sugarQ: number, sugarR: number, eggsQ: number, eggsR: number, cocoaQ: number, cocoaR: number) => Promise<void>;
+  overrideContracts: (teamId: string, contractIds: string[]) => Promise<void>;
   rewardOvertimeLabor: (bonusCash: number, bonusRawMaterials: number) => Promise<void>;
   resumeSession: (code: string) => Promise<void>;
+  joinStudentWithCode: (sessionCode: string, teamName: string) => Promise<void>;
   updateSession: (updates: Partial<Session>) => Promise<void>;
   updateTeamState: (teamId: string, updates: Partial<Team>) => Promise<void>;
   deleteTeamState: (teamId: string) => Promise<void>;
+  sessionError: string | null;
   theme: 'light' | 'dark';
   toggleTheme: () => void;
   logout: () => Promise<void>;
@@ -99,6 +109,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [sessionError, setSessionError] = useState<string | null>(null);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     try {
       const saved = localStorage.getItem('theme');
@@ -193,6 +204,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         difficulty: 'medium',
         totalRounds: 365,
         capacity: DEFAULT_PARAMETERS.initialCapacity,
+        parameters: DEFAULT_PARAMETERS,
       },
       createdAt: new Date().toISOString(),
       roundStartedAt: new Date().toISOString(),
@@ -218,7 +230,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       reorderPoint: 500,
       stations: JSON.parse(JSON.stringify(DEFAULT_STATIONS)),
       deliveries: [],
-      contracts: getInitialContracts()
+      contracts: []
     };
   });
 
@@ -671,7 +683,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
               reorderPoint: 500,
               stations: JSON.parse(JSON.stringify(DEFAULT_STATIONS)),
               deliveries: [],
-              contracts: getContractsForStudent(loginId)
+              contracts: (studSession.instructorContracts || []).map((c: any) => ({
+                ...c,
+                status: 'pending' as const,
+                deliveredCount: 0,
+                demandedCount: 0,
+              }))
             });
           }
         } catch (e: any) { 
@@ -734,7 +751,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           status: 'waiting',
           currentRound: 0,
           totalRounds: 10,
-          settings: { roundDuration: 120, difficulty: 'medium', totalRounds: 10, capacity: instLicense.maxSeats || 40 },
+          settings: { roundDuration: 120, difficulty: 'medium', totalRounds: 10, capacity: instLicense.maxSeats || 40, parameters: DEFAULT_PARAMETERS },
           createdAt: new Date().toISOString(),
           maxSeats: instLicense.maxSeats || 40,
           licensedCustomer: instLicense.customerName || 'License Holder',
@@ -788,7 +805,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
               ready: false, joinedAt: new Date().toISOString(),
               orderQuantity: 2000, reorderPoint: 500,
               stations: JSON.parse(JSON.stringify(DEFAULT_STATIONS)),
-              deliveries: [], contracts: getContractsForStudent(loginId)
+              deliveries: [],
+              contracts: (licSession.instructorContracts || []).map((c: any) => ({
+                 ...c,
+                 status: 'pending' as const,
+                 deliveredCount: 0,
+                 demandedCount: 0,
+               }))
             });
           }
         } catch (e: any) { 
@@ -951,6 +974,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           difficulty: 'medium',
           totalRounds: 10,
           capacity: INITIAL_VALUES.CAPACITY,
+          parameters: DEFAULT_PARAMETERS,
         },
         createdAt: new Date().toISOString(),
         maxSeats,
@@ -965,6 +989,114 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       logSystemError(err.message || 'Error creating session', 'GameContext.createSession', 'error');
       throw err;
     }
+  };
+
+  const joinStudentWithCode = async (sessionCode: string, teamName: string) => {
+    const code = sessionCode.trim().toUpperCase();
+    const name = teamName.trim();
+    if (!code || !name) {
+      throw new Error('Please enter both the session code and your team name.');
+    }
+
+    // 1. Ensure anonymous sign-in to pass security rules
+    let currentUser = auth.currentUser;
+    if (!currentUser) {
+      try {
+        const cred = await signInAnonymously(auth);
+        currentUser = cred.user;
+      } catch (e) {
+        throw new Error('Database connection failed. Please check your internet.');
+      }
+    }
+
+    // 2. Fetch the session details to verify it exists and check seats
+    const sessionRef = doc(db, 'sessions', code);
+    const sessionSnap = await getDoc(sessionRef);
+    if (!sessionSnap.exists() || sessionSnap.data()?.status === 'deleted') {
+      throw new Error(`Session lobby "${code}" not found. Please verify the code with your instructor.`);
+    }
+
+    const sessionData = sessionSnap.data();
+    if (sessionData.status === 'ended') {
+      throw new Error(`This session has already ended.`);
+    }
+
+    const maxSeatsLimit = sessionData.maxSeats || 40;
+
+    // Check if the team already exists or if we exceed capacity
+    const teamsCollRef = collection(db, `sessions/${code}/teams`);
+    const teamsSnap = await getDocs(teamsCollRef);
+    
+    // Use a unique student mock user ID based on their session and team name to prevent collisions
+    const studentUid = `${code}-STUD-${name.toUpperCase().replace(/\s+/g, '_')}`;
+    
+    const existsAlready = teamsSnap.docs.some(doc => doc.id === studentUid || doc.data().name?.toUpperCase() === name.toUpperCase());
+    
+    if (!existsAlready && teamsSnap.size >= maxSeatsLimit) {
+      throw new Error(`This simulation room has reached its active capacity limit of ${maxSeatsLimit} student seats (License Cap).`);
+    }
+
+    // Set mock user in sessionStorage
+    const mockUser = {
+      uid: studentUid,
+      email: `${name.toLowerCase().replace(/\s+/g, '_')}@student.muffinfactory.edu`,
+      emailVerified: true,
+      isAnonymous: true,
+      isMock: true,
+      mockRole: 'student',
+      mockSessionCode: code,
+    };
+    
+    sessionStorage.setItem('active_mock_user', JSON.stringify({
+      uid: studentUid,
+      email: mockUser.email,
+      role: 'student',
+      sessionCode: code,
+      teamId: studentUid
+    }));
+
+    setUser(mockUser as any);
+
+    // Create the team document
+    const teamRef = doc(db, `sessions/${code}/teams`, studentUid);
+    const teamSnap = await getDoc(teamRef);
+    
+    if (!teamSnap.exists() || teamSnap.data()?.status === 'deleted') {
+      await setDoc(teamRef, {
+        sessionId: code,
+        name: name.toUpperCase(),
+        balance: INITIAL_VALUES.BALANCE,
+        inventory: { standard: 0 },
+        rawMaterials: INITIAL_VALUES.RAW_MATERIALS,
+        flourStock: Math.round(0.35 * INITIAL_VALUES.RAW_MATERIALS),
+        sugarStock: Math.round(0.25 * INITIAL_VALUES.RAW_MATERIALS),
+        eggsStock: Math.round(0.20 * INITIAL_VALUES.RAW_MATERIALS),
+        cocoaStock: Math.round(0.20 * INITIAL_VALUES.RAW_MATERIALS),
+        flourOrderQty: 2000,
+        flourROP: 500,
+        sugarOrderQty: 1500,
+        sugarROP: 400,
+        eggsOrderQty: 1200,
+        eggsROP: 300,
+        cocoaOrderQty: 800,
+        cocoaROP: 200,
+        satisfaction: 100,
+        ready: false,
+        joinedAt: new Date().toISOString(),
+        orderQuantity: 2000,
+        reorderPoint: 500,
+        stations: JSON.parse(JSON.stringify(DEFAULT_STATIONS)),
+        deliveries: [],
+        contracts: (sessionData.instructorContracts || []).map((c: any) => ({
+          ...c,
+          status: 'pending' as const,
+          deliveredCount: 0,
+          demandedCount: 0,
+        }))
+      });
+    }
+
+    setSession({ id: code, ...sessionData } as Session);
   };
 
   const provisionSession = async (
@@ -999,6 +1131,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         difficulty: 'medium',
         totalRounds,
         capacity: INITIAL_VALUES.CAPACITY,
+        parameters: DEFAULT_PARAMETERS,
       },
       createdAt: new Date().toISOString(),
       maxSeats,
@@ -1094,7 +1227,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         reorderPoint: 500,
         stations: JSON.parse(JSON.stringify(DEFAULT_STATIONS)),
         deliveries: [],
-        contracts: getContractsForStudent(baseUid)
+        contracts: (sessionData.instructorContracts || []).map((c: any) => ({
+          ...c,
+          status: 'pending' as const,
+          deliveredCount: 0,
+          demandedCount: 0,
+        }))
       };
 
       await setDoc(doc(db, `sessions/${code}/teams`, baseUid), team);
@@ -1318,7 +1456,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           [], // We should ideally pass prev results but logic is mostly round-independent for now
           currentSessionData.settings.capacity || INITIAL_VALUES.CAPACITY,
           currentSessionData.activeEvent,
-          currentSessionData.settings.parameters
+          currentSessionData.settings?.parameters ?? DEFAULT_PARAMETERS
         );
 
         const teamRef = doc(db, `sessions/${sessionId}/teams/${team.id}`);
@@ -1405,6 +1543,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         difficulty: 'medium',
         totalRounds: 365,
         capacity: directParams.initialCapacity,
+        parameters: DEFAULT_PARAMETERS,
       },
       createdAt: new Date().toISOString(),
       roundStartedAt: new Date().toISOString(),
@@ -1424,7 +1563,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       reorderPoint: 500,
       stations: JSON.parse(JSON.stringify(DEFAULT_STATIONS)),
       deliveries: [],
-      contracts: getInitialContracts()
+      contracts: []
     });
 
     setDirectResults([]);
@@ -1473,10 +1612,91 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   };
 
-  const buyMachine = async (stationId: 'mixing' | 'bottling' | 'packaging' | 'icing') => {
-    const baseCostMap = { mixing: 50000, bottling: 75000, icing: 60000, packaging: 40000 };
-    const growthRateMap = { mixing: 1.12, bottling: 1.15, icing: 1.18, packaging: 1.15 };
+  const addInstructorContract = async (data: {
+    name: string;
+    appearsAtDay: number;
+    beginsAtDay: number;
+    endsAtDay: number;
+    dailyDemand: number;
+    pricePerUnit: number;
+    fillRateRequired: number;
+    fillRatePenalty: number;
+    exitPenalty: number;
+  }) => {
+    const newContract: Contract = {
+      ...data,
+      id: `inst_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      status: 'pending' as const,
+      deliveredCount: 0,
+      demandedCount: 0,
+    };
 
+    if (isDirectPlay) {
+      setDirectTeam(team => ({
+        ...team,
+        contracts: [...(team.contracts || []), { ...newContract }]
+      }));
+      setDirectSession(s => ({
+        ...s,
+        instructorContracts: [...(s.instructorContracts || []), newContract]
+      }));
+      return;
+    }
+
+    if (!session?.id) return;
+
+    await updateDoc(doc(db, 'sessions', session.id), {
+      instructorContracts: [...(session.instructorContracts || []), newContract]
+    });
+
+    await Promise.all(
+      allTeams.map(team =>
+        updateDoc(doc(db, `sessions/${session.id}/teams`, team.id), {
+          contracts: [...(team.contracts || []), { ...newContract }]
+        })
+      )
+    );
+  };
+
+  const removeInstructorContract = async (contractId: string) => {
+    if (isDirectPlay) {
+      setDirectSession(s => ({
+        ...s,
+        instructorContracts: (s.instructorContracts || [])
+          .filter(c => c.id !== contractId)
+      }));
+      setDirectTeam(team => ({
+        ...team,
+        contracts: (team.contracts || []).filter(c =>
+          c.id !== contractId ||
+          (c.status !== 'pending' && c.status !== 'offered')
+        )
+      }));
+      return;
+    }
+
+    if (!session?.id) return;
+
+    await updateDoc(doc(db, 'sessions', session.id), {
+      instructorContracts: (session.instructorContracts || [])
+        .filter(c => c.id !== contractId)
+    });
+
+    await Promise.all(
+      allTeams.map(team => {
+        const updatedContracts = (team.contracts || []).filter(c =>
+          c.id !== contractId ||
+          (c.status !== 'pending' && c.status !== 'offered')
+        );
+        return updateDoc(
+          doc(db, `sessions/${session.id}/teams`, team.id),
+          { contracts: updatedContracts }
+        );
+      })
+    );
+  };
+
+  const buyMachine = async (stationId: 'mixing' | 'bottling' | 'packaging' | 'icing') => {
     if (isDirectPlay) {
       setDirectTeam(t => {
         const stations = t.stations || JSON.parse(JSON.stringify(DEFAULT_STATIONS));
@@ -1489,16 +1709,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
           alert(`Insufficient funds! Total Cash is too low. Machine costs ₹${actualPrice.toLocaleString()}.`);
           return t;
         }
-        const nextOwned = st.owned + 1;
-        const nextPrice = Math.round(baseCostMap[stationId] * Math.pow(growthRateMap[stationId], nextOwned));
 
         const updatedStations = {
           ...stations,
           [stationId]: {
             ...st,
-            owned: nextOwned,
-            active: st.active + 1,
-            purchasePrice: nextPrice
+            owned: st.owned + 1,
+            active: st.active + 1
           }
         };
         return {
@@ -1521,16 +1738,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       alert(`Insufficient funds! Total Cash is too low. Machine costs ₹${actualPrice.toLocaleString()}.`);
       return;
     }
-    const nextOwned = st.owned + 1;
-    const nextPrice = Math.round(baseCostMap[stationId] * Math.pow(growthRateMap[stationId], nextOwned));
 
     const updatedStations = {
       ...stations,
       [stationId]: {
         ...st,
-        owned: nextOwned,
-        active: st.active + 1,
-        purchasePrice: nextPrice
+        owned: st.owned + 1,
+        active: st.active + 1
       }
     };
     await updateDoc(teamRef, {
@@ -1598,23 +1812,18 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   };
 
-  const updateProcurementSettingsEx = async (settings: {
-    flourQ: number; flourR: number;
-    sugarQ: number; sugarR: number;
-    eggsQ: number; eggsR: number;
-    cocoaQ: number; cocoaR: number;
-  }) => {
+  const updateProcurementSettingsEx = async (flourQ: number, flourR: number, sugarQ: number, sugarR: number, eggsQ: number, eggsR: number, cocoaQ: number, cocoaR: number) => {
     const dbSettings = {
-      flourOrderQty: settings.flourQ,
-      flourROP: settings.flourR,
-      sugarOrderQty: settings.sugarQ,
-      sugarROP: settings.sugarR,
-      eggsOrderQty: settings.eggsQ,
-      eggsROP: settings.eggsR,
-      cocoaOrderQty: settings.cocoaQ,
-      cocoaROP: settings.cocoaR,
-      orderQuantity: settings.flourQ, // compatibility fallback
-      reorderPoint: settings.flourR  // compatibility fallback
+      flourOrderQty: flourQ,
+      flourROP: flourR,
+      sugarOrderQty: sugarQ,
+      sugarROP: sugarR,
+      eggsOrderQty: eggsQ,
+      eggsROP: eggsR,
+      cocoaOrderQty: cocoaQ,
+      cocoaROP: cocoaR,
+      orderQuantity: flourQ, // compatibility fallback
+      reorderPoint: flourR  // compatibility fallback
     };
 
     if (isDirectPlay) {
@@ -1627,6 +1836,37 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!session?.id || !currentTeam?.id) return;
     const teamRef = doc(db, `sessions/${session.id}/teams`, currentTeam.id);
     await updateDoc(teamRef, dbSettings);
+  };
+
+  const overrideContracts = async (teamId: string, contractIds: string[]) => {
+    if (!session || !user) throw new Error('Not connected to a session');
+    try {
+      const pool = session.instructorContracts || [];
+      const teamsList = isDirectPlay ? [directTeam] : allTeams;
+      const newContracts = pool
+        .filter(c => contractIds.includes(c.id))
+        .map(c => {
+          const existing = (currentTeam?.id === teamId ? currentTeam : teamsList.find(t => t.id === teamId))?.contracts?.find(tc => tc.id === c.id);
+          if (existing) {
+            return existing;
+          }
+          return {
+            ...c,
+            status: 'pending' as const,
+            deliveredCount: 0,
+            demandedCount: 0,
+          };
+        });
+
+      // Find the specific team doc and update
+      const teamRef = doc(db, `sessions/${session.id}/teams`, teamId);
+      await updateDoc(teamRef, {
+        contracts: newContracts
+      });
+    } catch (err: any) {
+      console.error('Error overriding contracts:', err);
+      throw new Error('Failed to override contracts');
+    }
   };
 
   const rewardOvertimeLabor = async (bonusCash: number, bonusRawMaterials: number) => {
@@ -1711,15 +1951,20 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       triggerEvent,
       acceptContract,
       abortContract,
+      addInstructorContract,
+      removeInstructorContract,
       buyMachine,
       updateActiveMachines,
       updateProcurementSettings,
       updateProcurementSettingsEx,
+      overrideContracts,
       rewardOvertimeLabor,
       resumeSession,
+      joinStudentWithCode,
       updateSession,
       updateTeamState,
       deleteTeamState,
+      sessionError,
       theme,
       toggleTheme,
       logout

@@ -6,11 +6,12 @@ import {
   Play, LogIn, Mail, Lock, Eye, EyeOff, Monitor, GraduationCap,
   Shield, Clock, DollarSign, TrendingUp, Award, Zap, Menu,
   BookOpen, Settings, LayoutDashboard, PieChart, Package,
-  Cpu, Truck, Gauge, Star, Globe, Building2, Phone
+  Cpu, Truck, Gauge, Star, Globe, Building2, Phone, User
 } from 'lucide-react';
 
 import { useGame } from '../context/GameContext';
 import { MuffinFactoryDashboardPreview } from './MuffinFactoryDashboardPreview';
+import emailjs from '@emailjs/browser';
 
 /* ─── Props ──────────────────────────────────────────────────── */
 interface Props {
@@ -124,7 +125,11 @@ const FAQS = [
   },
   {
     q: 'Is there a free trial available?',
-    a: 'Yes! You can launch a free demo right now — no account required. For a full instructor trial with all features, including multiplayer and analytics, contact us for a 30-day pilot license at no cost.',
+    a: (
+      <span>
+        Yes! You can launch a free demo right now — no account required. For a full instructor trial with all features, including multiplayer and analytics, please <a href="mailto:muffinmegafactory@gmail.com" style={{ color: '#16a34a', textDecoration: 'underline', fontWeight: 600 }}>contact us</a> for a 30-day pilot license at no cost.
+      </span>
+    ),
   },
   {
     q: 'What kind of support do you offer for instructors?',
@@ -145,12 +150,12 @@ export function MarketingLandingPage({ login, setIsDirectPlay }: Props) {
   const [activeFeature, setActiveFeature] = useState(0);
   const [activeDashboard, setActiveDashboard] = useState<number>(0);
   const [faqOpen, setFaqOpen] = useState<Record<number, boolean>>({});
-  const { loginWithMockCredentials } = useGame();
+  const { loginWithMockCredentials, joinStudentWithCode } = useGame();
   
   const [showModal, setShowModal] = useState(false);
   const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
-  const [selectedSlot, setSelectedSlot] = useState<'instructor' | '1' | '2' | '3' | '4'>('1');
+  const [activeAuthTab, setActiveAuthTab] = useState<'student' | 'instructor'>('student');
   const [showPw, setShowPw] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [mobileMenu, setMobileMenu] = useState(false);
@@ -607,7 +612,62 @@ export function MarketingLandingPage({ login, setIsDirectPlay }: Props) {
           </div>
 
           {/* simulator mockup container */}
-          <MuffinFactoryDashboardPreview />
+          <div style={{
+            background: T.white,
+            border: `1.5px solid ${T.border2}`,
+            borderRadius: 16,
+            boxShadow: '0 30px 60px -15px rgba(0, 0, 0, 0.15)',
+            overflow: 'hidden',
+            maxWidth: 1000,
+            margin: '0 auto',
+          }}>
+            {/* Browser top bar */}
+            <div style={{
+              background: '#f8f9fa',
+              borderBottom: `1.5px solid ${T.border2}`,
+              padding: '12px 18px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+            }}>
+              {/* Colored window controls */}
+              <div style={{ display: 'flex', gap: 6 }}>
+                <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#ff5f56' }} />
+                <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#ffbd2e' }} />
+                <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#27c93f' }} />
+              </div>
+              {/* Address bar */}
+              <div style={{
+                background: '#ffffff',
+                border: `1.5px solid ${T.border2}`,
+                borderRadius: 6,
+                flex: 1,
+                fontSize: 12,
+                fontFamily: T.sans,
+                color: T.ink3,
+                padding: '4px 12px',
+                textAlign: 'center' as const,
+                maxWidth: 400,
+                margin: '0 auto',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+              }}>
+                <span style={{ fontSize: 10 }}>🔒</span> muffinfactory.edu/simulation/room-uc29xv
+              </div>
+            </div>
+            {/* Browser view */}
+            <img 
+              src="/simulator_mockup.jpg" 
+              alt="Muffin Factory Simulation Workspace" 
+              style={{
+                width: '100%',
+                height: 'auto',
+                display: 'block'
+              }}
+            />
+          </div>
         </motion.div>
       </section>
 
@@ -766,7 +826,7 @@ export function MarketingLandingPage({ login, setIsDirectPlay }: Props) {
                     <div style={{
                       fontFamily: T.sans, fontSize: 15, color: T.ink3, marginTop: 12, lineHeight: 1.5
                     }}>
-                      For large cohorts ({students} students), please contact our sales team for custom volume pricing and deployment options.
+                      For large cohorts ({students} students), please <a href="mailto:muffinmegafactory@gmail.com" style={{ color: T.green, textDecoration: 'underline', fontWeight: 600 }}>contact our sales team</a> for custom volume pricing and deployment options.
                     </div>
                   </>
                 ) : (
@@ -1014,17 +1074,37 @@ export function MarketingLandingPage({ login, setIsDirectPlay }: Props) {
               }}>
                 Company
               </div>
-              {['About', 'Blog', 'Careers', 'Contact', 'Partner Program'].map((link) => (
-                <div key={link} style={{
-                  fontFamily: T.sans, fontSize: 14, color: '#888880', marginBottom: 12,
-                  cursor: 'pointer', transition: 'color 0.2s',
-                }}
-                  onMouseEnter={(e) => { (e.target as HTMLElement).style.color = T.white; }}
-                  onMouseLeave={(e) => { (e.target as HTMLElement).style.color = '#888880'; }}
-                >
-                  {link}
-                </div>
-              ))}
+              {['About', 'Blog', 'Careers', 'Contact', 'Partner Program'].map((link) => {
+                if (link === 'Contact') {
+                  return (
+                    <a
+                      key={link}
+                      href="mailto:muffinmegafactory@gmail.com"
+                      style={{
+                        display: 'block',
+                        fontFamily: T.sans, fontSize: 14, color: '#888880', marginBottom: 12,
+                        cursor: 'pointer', transition: 'color 0.2s',
+                        textDecoration: 'none',
+                      }}
+                      onMouseEnter={(e) => { (e.target as HTMLElement).style.color = T.white; }}
+                      onMouseLeave={(e) => { (e.target as HTMLElement).style.color = '#888880'; }}
+                    >
+                      Contact
+                    </a>
+                  );
+                }
+                return (
+                  <div key={link} style={{
+                    fontFamily: T.sans, fontSize: 14, color: '#888880', marginBottom: 12,
+                    cursor: 'pointer', transition: 'color 0.2s',
+                  }}
+                    onMouseEnter={(e) => { (e.target as HTMLElement).style.color = T.white; }}
+                    onMouseLeave={(e) => { (e.target as HTMLElement).style.color = '#888880'; }}
+                  >
+                    {link}
+                  </div>
+                );
+              })}
             </div>
 
             {/* Legal */}
@@ -1152,10 +1232,68 @@ export function MarketingLandingPage({ login, setIsDirectPlay }: Props) {
                 <div style={{ flex: 1, height: 1, background: T.border }} />
               </div>
 
+              {/* Tab Switcher */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                background: '#f1f5f9',
+                padding: 4,
+                borderRadius: 8,
+                marginBottom: 20,
+                border: '1px solid #e2e8f0'
+              }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveAuthTab('student');
+                    setLoginId('');
+                    setPassword('');
+                  }}
+                  style={{
+                    fontFamily: T.sans,
+                    fontSize: 12,
+                    fontWeight: 750,
+                    padding: '8px 0',
+                    borderRadius: 6,
+                    border: 'none',
+                    background: activeAuthTab === 'student' ? '#ffffff' : 'none',
+                    color: activeAuthTab === 'student' ? T.ink : '#64748b',
+                    cursor: 'pointer',
+                    boxShadow: activeAuthTab === 'student' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                    transition: 'all 0.15s'
+                  }}
+                >
+                  🎓 Student Join
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveAuthTab('instructor');
+                    setLoginId('');
+                    setPassword('');
+                  }}
+                  style={{
+                    fontFamily: T.sans,
+                    fontSize: 12,
+                    fontWeight: 750,
+                    padding: '8px 0',
+                    borderRadius: 6,
+                    border: 'none',
+                    background: activeAuthTab === 'instructor' ? '#ffffff' : 'none',
+                    color: activeAuthTab === 'instructor' ? T.ink : '#64748b',
+                    cursor: 'pointer',
+                    boxShadow: activeAuthTab === 'instructor' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                    transition: 'all 0.15s'
+                  }}
+                >
+                  🛡️ Instructor / Admin
+                </button>
+              </div>
+
               {/* id/password form */}
               <div style={{ marginBottom: 12 }}>
                 <label style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.ink2, display: 'block', marginBottom: 6 }}>
-                  Login ID (Instructor or Student)
+                  {activeAuthTab === 'student' ? 'Session Lobby Code' : 'Login ID (Instructor or Admin)'}
                 </label>
                 <div style={{ position: 'relative' as const }}>
                   <Mail size={16} color={T.ink4} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)' }} />
@@ -1163,7 +1301,7 @@ export function MarketingLandingPage({ login, setIsDirectPlay }: Props) {
                     type="text"
                     value={loginId}
                     onChange={(e) => setLoginId(e.target.value)}
-                    placeholder="Enter your Login ID"
+                    placeholder={activeAuthTab === 'student' ? 'Enter 6-letter lobby code (e.g. ABCDEF)' : 'Enter your Login ID'}
                     style={{
                       fontFamily: T.sans, fontSize: 14, padding: '11px 14px 11px 40px',
                       border: `1.5px solid ${T.border2}`, borderRadius: T.radiusSm,
@@ -1176,76 +1314,60 @@ export function MarketingLandingPage({ login, setIsDirectPlay }: Props) {
 
               <div style={{ marginBottom: 20 }}>
                 <label style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.ink2, display: 'block', marginBottom: 6 }}>
-                  Password
+                  {activeAuthTab === 'student' ? 'Team Name' : 'Password'}
                 </label>
                 <div style={{ position: 'relative' as const }}>
-                  <Lock size={16} color={T.ink4} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)' }} />
+                  {activeAuthTab === 'student' ? (
+                    <User size={16} color={T.ink4} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)' }} />
+                  ) : (
+                    <Lock size={16} color={T.ink4} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)' }} />
+                  )}
                   <input
-                    type={showPw ? 'text' : 'password'}
+                    type={activeAuthTab === 'student' ? 'text' : (showPw ? 'text' : 'password')}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
+                    placeholder={activeAuthTab === 'student' ? 'Enter your team name (e.g. Team Alpha)' : '••••••••'}
                     style={{
-                      fontFamily: T.sans, fontSize: 14, padding: '11px 44px 11px 40px',
+                      fontFamily: T.sans, fontSize: 14, padding: '11px 14px 11px 40px',
                       border: `1.5px solid ${T.border2}`, borderRadius: T.radiusSm,
                       width: '100%', outline: 'none', boxSizing: 'border-box' as const,
                       color: T.ink,
                     }}
                   />
-                  <button
-                    onClick={() => setShowPw(!showPw)}
-                    style={{
-                      position: 'absolute' as const, right: 12, top: '50%', transform: 'translateY(-50%)',
-                      background: 'none', border: 'none', cursor: 'pointer', padding: 2,
-                    }}
-                  >
-                    {showPw ? <EyeOff size={16} color={T.ink4} /> : <Eye size={16} color={T.ink4} />}
-                  </button>
-                </div>
-              </div>
-
-              {/* member slot selector */}
-              <div style={{ marginBottom: 20 }}>
-                <label style={{ fontFamily: T.sans, fontSize: 12, fontWeight: 600, color: T.ink2, display: 'block', marginBottom: 6 }}>
-                  Session Role / Team Slot
-                </label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
-                  {[
-                    { val: 'instructor', label: 'Inst.' },
-                    { val: '1', label: 'Mem 1' },
-                    { val: '2', label: 'Mem 2' },
-                    { val: '3', label: 'Mem 3' },
-                    { val: '4', label: 'Mem 4' }
-                  ].map(opt => {
-                    const isSelected = selectedSlot === opt.val;
-                    return (
-                      <button
-                        key={opt.val}
-                        type="button"
-                        onClick={() => setSelectedSlot(opt.val as any)}
-                        style={{
-                          fontFamily: T.sans, fontSize: 11, fontWeight: 700,
-                          padding: '10px 4px', borderRadius: T.radiusSm,
-                          border: isSelected ? '2px solid #16a34a' : `1.5px solid ${T.border}`,
-                          background: isSelected ? '#f0fdf4' : T.white,
-                          color: isSelected ? '#16a34a' : T.ink3,
-                          cursor: 'pointer', transition: 'all 0.15s',
-                        }}
-                      >
-                        {opt.label}
-                      </button>
-                    );
-                  })}
+                  {activeAuthTab === 'instructor' && (
+                    <button
+                      onClick={() => setShowPw(!showPw)}
+                      style={{
+                        position: 'absolute' as const, right: 12, top: '50%', transform: 'translateY(-50%)',
+                        background: 'none', border: 'none', cursor: 'pointer', padding: 2,
+                      }}
+                    >
+                      {showPw ? <EyeOff size={16} color={T.ink4} /> : <Eye size={16} color={T.ink4} />}
+                    </button>
+                  )}
                 </div>
               </div>
 
               <button
                 onClick={async () => { 
                   try {
-                    showToast('Signing in...');
-                    // Always pass the full ID as-is — admin-generated IDs are already unique
-                    await loginWithMockCredentials(loginId.trim(), password);
-                    showToast('Sign in successful!');
+                    if (activeAuthTab === 'student') {
+                      if (!loginId.trim() || !password.trim()) {
+                        showToast('Please enter both the session code and your team name.');
+                        return;
+                      }
+                      showToast('Joining classroom...');
+                      await joinStudentWithCode(loginId.trim(), password.trim());
+                      showToast('Joined classroom successfully!');
+                    } else {
+                      if (!loginId.trim() || !password) {
+                        showToast('Please enter both Login ID and Password.');
+                        return;
+                      }
+                      showToast('Signing in...');
+                      await loginWithMockCredentials(loginId.trim(), password);
+                      showToast('Sign in successful!');
+                    }
                     setShowModal(false);
                   } catch (err: any) {
                     showToast('Error: ' + err.message);
@@ -1260,7 +1382,7 @@ export function MarketingLandingPage({ login, setIsDirectPlay }: Props) {
                 onMouseEnter={(e) => { (e.target as HTMLElement).style.background = T.ink2; }}
                 onMouseLeave={(e) => { (e.target as HTMLElement).style.background = T.ink; }}
               >
-                Sign In
+                {activeAuthTab === 'student' ? 'Join Classroom' : 'Sign In'}
               </button>
             </div>
           </motion.div>
@@ -1322,6 +1444,19 @@ export function MarketingLandingPage({ login, setIsDirectPlay }: Props) {
                     showToast('Please fill out all required fields.');
                     return;
                   }
+                  const templateParams = {
+                    form_type: 'Formal Price Quote Request',
+                    name: quoteName,
+                    email: quoteEmail,
+                    organization: quoteOrg,
+                    students: students.toString(),
+                    message: `Department: ${quoteDept || 'N/A'}\nSessions: ${sessions}\nLicense Term: ${duration}\nTotal Estimate: $${totalPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+                    date: new Date().toLocaleString(),
+                  };
+
+                  emailjs.send('service_5pcx4hw', 'template_r9639yf', templateParams, 'TmzldpiycMQDEttvp')
+                    .then(() => console.log("Email sent successfully"))
+                    .catch(err => console.error("EmailJS error:", err));
                   setQuoteStep(2);
                 }}
                 style={{ padding: 28 }}
@@ -1628,7 +1763,7 @@ export function MarketingLandingPage({ login, setIsDirectPlay }: Props) {
                   marginTop: '20px',
                   fontWeight: 500,
                 }}>
-                  Book a quick call with our learning design team to walkthrough custom integrations, course mapping, and pricing plans.
+                  Book a quick call with our learning design team to walkthrough custom integrations, course mapping, and pricing plans. You can also reach us directly at <a href="mailto:muffinmegafactory@gmail.com" style={{ color: '#4f46e5', textDecoration: 'underline', fontWeight: 600 }}>muffinmegafactory@gmail.com</a>.
                 </p>
               </div>
 
@@ -1699,6 +1834,19 @@ export function MarketingLandingPage({ login, setIsDirectPlay }: Props) {
                       showToast('Please fill out all required fields.');
                       return;
                     }
+                    const templateParams = {
+                      form_type: 'Book a Demo',
+                      name: demoName,
+                      email: demoEmail,
+                      organization: demoCourse,
+                      students: 'N/A',
+                      message: 'Requested a professional demo walkthrough.',
+                      date: new Date().toLocaleString(),
+                    };
+
+                    emailjs.send('service_5pcx4hw', 'template_r9639yf', templateParams, 'TmzldpiycMQDEttvp')
+                      .then(() => console.log("Email sent successfully"))
+                      .catch(err => console.error("EmailJS error:", err));
                     setDemoStep(2);
                   }}
                   style={{

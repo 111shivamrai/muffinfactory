@@ -101,18 +101,6 @@ export function SaasAdminDashboard() {
   const [newLicInstructorId, setNewLicInstructorId] = useState('');
   const [newLicInstructorPassword, setNewLicInstructorPassword] = useState('');
   
-  // Custom student ID credentials list states
-  const [newLicStudentAccounts, setNewLicStudentAccounts] = useState<{ studentId: string; studentPassword: string; }[]>([]);
-  const [showStudentCredsModal, setShowStudentCredsModal] = useState(false);
-  const [newStudentIdInput, setNewStudentIdInput] = useState('');
-  const [newStudentPasswordInput, setNewStudentPasswordInput] = useState('');
-  const [credsSearchQuery, setCredsSearchQuery] = useState('');
-  
-  // Viewing existing license credentials states
-  const [viewingLicCreds, setViewingLicCreds] = useState<License | null>(null);
-  const [showViewCredsModal, setShowViewCredsModal] = useState(false);
-  const [credsViewSearchQuery, setCredsViewSearchQuery] = useState('');
-
   const [formError, setFormError] = useState('');
   const [formSuccess, setFormSuccess] = useState('');
 
@@ -121,54 +109,14 @@ export function SaasAdminDashboard() {
     if (clean) {
       setNewLicInstructorId(prev => prev || (clean + '-INST'));
       setNewLicInstructorPassword(prev => prev || Math.random().toString(36).substring(2, 8).toUpperCase());
-      setNewLicStudentAccounts(prev => {
-        if (prev.length > 0) return prev;
-        return [
-          { studentId: `${clean}-STUD-A`, studentPassword: Math.random().toString(36).substring(2, 8).toUpperCase() },
-          { studentId: `${clean}-STUD-B`, studentPassword: Math.random().toString(36).substring(2, 8).toUpperCase() },
-          { studentId: `${clean}-STUD-C`, studentPassword: Math.random().toString(36).substring(2, 8).toUpperCase() }
-        ];
-      });
     } else {
       setNewLicInstructorId('');
       setNewLicInstructorPassword('');
-      setNewLicStudentAccounts([]);
     }
   }, [newLicCode]);
 
   const togglePasswordReveal = (label: string) => {
     setRevealedPasswords(prev => ({ ...prev, [label]: !prev[label] }));
-  };
-
-  const handleAddStudentAccount = () => {
-    const cleanId = newStudentIdInput.trim();
-    const cleanPass = newStudentPasswordInput.trim();
-    if (!cleanId || !cleanPass) {
-      alert("Both Student ID and Password are required.");
-      return;
-    }
-    if (newLicSeats !== 999 && newLicStudentAccounts.length >= newLicSeats) {
-      alert(`Cannot add more accounts. Maximum seat limit (${newLicSeats}) reached.`);
-      return;
-    }
-    if (newLicStudentAccounts.some(acc => acc.studentId.toUpperCase() === cleanId.toUpperCase())) {
-      alert("This Student ID is already configured.");
-      return;
-    }
-    
-    const newAccounts = [...newLicStudentAccounts, { studentId: cleanId, studentPassword: cleanPass }];
-    setNewLicStudentAccounts(newAccounts);
-    
-    // Suggest the next logic credentials
-    const clean = newLicCode.trim().toUpperCase() || 'LICENSE';
-    setNewStudentIdInput(`${clean}-STUD-${newAccounts.length + 1}`);
-    setNewStudentPasswordInput(Math.random().toString(36).substring(2, 8).toUpperCase());
-  };
-
-  const handleRemoveStudentAccount = (index: number) => {
-    const updated = [...newLicStudentAccounts];
-    updated.splice(index, 1);
-    setNewLicStudentAccounts(updated);
   };
 
 
@@ -332,10 +280,7 @@ export function SaasAdminDashboard() {
         createdAt: new Date().toISOString(),
         notes: newLicNotes.trim(),
         instructorId: newLicInstructorId.trim(),
-        instructorPassword: newLicInstructorPassword.trim(),
-        studentId: newLicStudentAccounts[0]?.studentId || `${cleanCode}-STUD`,
-        studentPassword: newLicStudentAccounts[0]?.studentPassword || 'PASS',
-        studentAccounts: newLicStudentAccounts
+        instructorPassword: newLicInstructorPassword.trim()
       };
 
       // Optimistic local save to deeply guarantee persistence across tabs
@@ -357,13 +302,8 @@ export function SaasAdminDashboard() {
         instructorId: newLicInstructorId.trim(),
         customInstructorId: newLicInstructorId.trim(),
         customInstructorPassword: newLicInstructorPassword.trim(),
-        customStudentId: newLicStudentAccounts[0]?.studentId || `${cleanCode}-STUD`,
-        customStudentPassword: newLicStudentAccounts[0]?.studentPassword || 'PASS',
         instructorIdMock: newLicInstructorId.trim(),
         instructorPassword: newLicInstructorPassword.trim(),
-        studentId: newLicStudentAccounts[0]?.studentId || `${cleanCode}-STUD`,
-        studentPassword: newLicStudentAccounts[0]?.studentPassword || 'PASS',
-        studentAccounts: newLicStudentAccounts,
         code: cleanCode,
         status: 'waiting',
         currentRound: 0,
@@ -397,7 +337,6 @@ export function SaasAdminDashboard() {
       setFormSuccess(`License "${cleanCode}" created successfully!`);
       setNewLicCode(''); setNewLicCustomer(''); setNewLicEmail(''); setNewLicNotes('');
       setNewLicInstructorId(''); setNewLicInstructorPassword('');
-      setNewLicStudentAccounts([]);
     } catch (err: any) { setFormError(`Failed: ${err.message}`); }
   };
 
@@ -1149,24 +1088,9 @@ export function SaasAdminDashboard() {
                             className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-2.5 font-mono text-xs rounded-lg focus:border-indigo-500 outline-none text-slate-850 dark:text-white" />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-[8px] font-bold uppercase text-slate-450 dark:text-slate-550 ml-1">Instructor Password</label>
+                          <label className="text-[8px] font-bold uppercase text-slate-450 dark:text-slate-555 ml-1">Instructor Password</label>
                           <input type="text" placeholder="Pass" value={newLicInstructorPassword} onChange={e => setNewLicInstructorPassword(e.target.value)}
                             className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-2.5 font-mono text-xs rounded-lg focus:border-indigo-500 outline-none text-slate-850 dark:text-white" />
-                        </div>
-                        <div className="col-span-2 space-y-1">
-                          <label className="text-[8px] font-bold uppercase text-slate-450 dark:text-slate-550 ml-1">Student Accounts</label>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const clean = newLicCode.trim().toUpperCase() || 'LICENSE';
-                              setNewStudentIdInput(`${clean}-STUD-${newLicStudentAccounts.length + 1}`);
-                              setNewStudentPasswordInput(Math.random().toString(36).substring(2, 8).toUpperCase());
-                              setShowStudentCredsModal(true);
-                            }}
-                            className="w-full bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/30 dark:hover:bg-indigo-900/40 border border-indigo-200 dark:border-indigo-800/80 text-indigo-600 dark:text-indigo-400 p-2.5 text-xs rounded-lg font-bold flex items-center justify-center gap-2 cursor-pointer transition-all"
-                          >
-                            🔑 student-id password (Click to configure individually - {newLicStudentAccounts.length} / {newLicSeats === 999 ? '∞' : newLicSeats})
-                          </button>
                         </div>
                       </div>
 
@@ -1224,25 +1148,9 @@ export function SaasAdminDashboard() {
                                       {copiedStates[lic.id + '-inst'] ? <Check className="w-3 h-3 text-emerald-500" /> : <Clipboard className="w-3 h-3" />}
                                     </button>
                                   </div>
-                                  {lic.studentAccounts && lic.studentAccounts.length > 0 ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => { setViewingLicCreds(lic); setShowViewCredsModal(true); }}
-                                      className="bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border border-indigo-200 dark:border-indigo-850 px-2.5 py-1 rounded-lg flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 font-bold transition-all cursor-pointer text-[9px] font-sans"
-                                    >
-                                      <span>🔑 View Student IDs ({lic.studentAccounts.length})</span>
-                                    </button>
-                                  ) : (
-                                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 px-2.5 py-1 rounded-lg flex items-center gap-2 text-slate-500 dark:text-slate-400">
-                                      <span>Stud: <strong className="text-slate-700 dark:text-slate-350">{lic.studentId || '—'}</strong> / <strong className="text-slate-750 dark:text-slate-300">{revealedPasswords[lic.id + '-stud'] ? (lic.studentPassword || '—') : '••••••'}</strong></span>
-                                      <button type="button" onClick={() => togglePasswordReveal(lic.id + '-stud')} className="text-slate-450 hover:text-slate-700 dark:hover:text-slate-300 p-0.5 cursor-pointer">
-                                        {revealedPasswords[lic.id + '-stud'] ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                                      </button>
-                                      <button type="button" onClick={() => handleCopyToClipboard(`${lic.studentId || '—'} / ${lic.studentPassword || '—'}`, lic.id + '-stud')} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 p-0.5 cursor-pointer" title="Copy Credentials">
-                                        {copiedStates[lic.id + '-stud'] ? <Check className="w-3 h-3 text-emerald-500" /> : <Clipboard className="w-3 h-3" />}
-                                      </button>
-                                    </div>
-                                  )}
+                                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 px-2.5 py-1 rounded-lg flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                                    <span className="font-sans text-[8px] font-bold text-indigo-500 dark:text-indigo-400 uppercase">Student Access: Join via Lobby Code</span>
+                                  </div>
                                 </div>
                               </div>
                             </div>
@@ -1604,9 +1512,6 @@ export function SaasAdminDashboard() {
                   </div>
                 </div>
 
-                {editError && <div className="text-xs text-red-500 bg-red-50 border border-red-100 p-3 rounded-xl flex items-center justify-center gap-2"><AlertTriangle className="w-4 h-4" /> {editError}</div>}
-                {editSuccess && <div className="text-xs text-emerald-600 bg-emerald-50 border border-emerald-150 p-3 rounded-xl flex items-center justify-center gap-2"><CheckCircle className="w-4 h-4" /> {editSuccess}</div>}
-
                 <div className="flex gap-3 justify-end pt-3 border-t border-slate-100 dark:border-slate-800">
                   <button 
                     type="button" 
@@ -1624,308 +1529,6 @@ export function SaasAdminDashboard() {
                   </button>
                 </div>
               </form>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* ═══ CONFIGURE STUDENT CREDENTIALS MODAL OVERLAY ═══ */}
-      <AnimatePresence>
-        {showStudentCredsModal && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-slate-900/60 dark:bg-black/70 backdrop-blur-xs z-[9999] flex items-center justify-center p-4 font-sans select-none"
-          >
-            <motion.div 
-              initial={{ scale: 0.95, y: 10 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.95, y: 10 }}
-              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden text-slate-850 dark:text-white"
-            >
-              <div className="h-1 bg-gradient-to-r from-indigo-500 via-violet-500 to-purple-500" />
-              <div className="p-5 border-b border-slate-150 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50">
-                <div className="flex items-center gap-2">
-                  <KeyRound className="w-5 h-5 text-indigo-500 dark:text-indigo-400" />
-                  <div>
-                    <h3 className="text-sm font-black uppercase tracking-wider text-slate-850 dark:text-white">Configure Student IDs & Passwords</h3>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
-                      Manage individual team login credentials for license <span className="font-mono font-bold text-slate-600 dark:text-slate-350">{newLicCode.toUpperCase() || 'TEMP'}</span>
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowStudentCredsModal(false)}
-                  className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-700 dark:hover:text-white transition-colors cursor-pointer font-bold"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <div className="p-6 space-y-6">
-                {/* Form to Add Account */}
-                <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-xl border border-slate-200 dark:border-slate-850 space-y-3">
-                  <span className="text-[10px] font-black uppercase text-indigo-600 dark:text-indigo-400 tracking-wider">
-                    Add New Student Credentials
-                  </span>
-                  
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-[8px] font-bold uppercase text-slate-450 dark:text-slate-555 ml-1">Student Login ID</label>
-                      <input 
-                        type="text" 
-                        placeholder="ID (e.g., TEAM-1)" 
-                        value={newStudentIdInput} 
-                        onChange={e => setNewStudentIdInput(e.target.value)}
-                        className="w-full bg-white dark:bg-slate-900 border border-slate-250 dark:border-slate-800 p-2.5 font-mono text-xs rounded-lg focus:border-indigo-500 outline-none text-slate-850 dark:text-white" 
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[8px] font-bold uppercase text-slate-450 dark:text-slate-555 ml-1">Student Login Password</label>
-                      <div className="flex gap-2">
-                        <input 
-                          type="text" 
-                          placeholder="Password" 
-                          value={newStudentPasswordInput} 
-                          onChange={e => setNewStudentPasswordInput(e.target.value)}
-                          className="w-full bg-white dark:bg-slate-900 border border-slate-250 dark:border-slate-800 p-2.5 font-mono text-xs rounded-lg focus:border-indigo-500 outline-none text-slate-850 dark:text-white" 
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setNewStudentPasswordInput(Math.random().toString(36).substring(2, 8).toUpperCase())}
-                          className="px-3 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-lg cursor-pointer transition-colors"
-                          title="Generate Random Password"
-                        >
-                          🔄
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="flex justify-between items-center pt-2">
-                    <span className="text-[10px] font-mono text-slate-450 dark:text-slate-500">
-                      Total Allocated: <strong className="text-slate-750 dark:text-slate-300">{newLicStudentAccounts.length}</strong> / {newLicSeats === 999 ? '∞' : newLicSeats} Seats
-                    </span>
-                    <button
-                      type="button"
-                      onClick={handleAddStudentAccount}
-                      disabled={newLicSeats !== 999 && newLicStudentAccounts.length >= newLicSeats}
-                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-350 dark:disabled:bg-slate-800 text-white font-extrabold text-[10px] uppercase tracking-wider rounded-lg flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed transition-all shadow-xs"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> Add Student
-                    </button>
-                  </div>
-                </div>
-
-                {/* List of Configured Accounts */}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
-                      Configured Login Credentials
-                    </span>
-                    <input 
-                      type="text" 
-                      placeholder="Search credentials..." 
-                      value={credsSearchQuery}
-                      onChange={e => setCredsSearchQuery(e.target.value)}
-                      className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 px-2.5 py-1 text-[11px] rounded-lg focus:border-indigo-500 outline-none text-slate-850 dark:text-white"
-                    />
-                  </div>
-
-                  <div className="border border-slate-150 dark:border-slate-800 rounded-xl overflow-hidden max-h-[220px] overflow-y-auto bg-slate-50/50 dark:bg-slate-950/20">
-                    {newLicStudentAccounts.length === 0 ? (
-                      <div className="text-center py-8 text-xs text-slate-450 dark:text-slate-500">
-                        No student credentials added yet. Default logic credentials will be used if empty.
-                      </div>
-                    ) : (
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="bg-slate-100 dark:bg-slate-900 border-b border-slate-150 dark:border-slate-800 text-[9px] uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                            <th className="p-2.5 font-bold">#</th>
-                            <th className="p-2.5 font-bold">Student ID</th>
-                            <th className="p-2.5 font-bold">Password</th>
-                            <th className="p-2.5 font-bold text-center">Action</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-150 dark:divide-slate-800 text-xs font-mono text-slate-700 dark:text-slate-300">
-                          {newLicStudentAccounts
-                            .filter(acc => 
-                              !credsSearchQuery.trim() || 
-                              acc.studentId.toLowerCase().includes(credsSearchQuery.toLowerCase())
-                            )
-                            .map((acc, idx) => (
-                              <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-white/3">
-                                <td className="p-2.5 text-slate-400 dark:text-slate-500">{idx + 1}</td>
-                                <td className="p-2.5 font-bold">{acc.studentId}</td>
-                                <td className="p-2.5">{acc.studentPassword}</td>
-                                <td className="p-2.5 text-center">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRemoveStudentAccount(idx)}
-                                    className="p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-md cursor-pointer transition-colors"
-                                    title="Remove Account"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-5 border-t border-slate-150 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowStudentCredsModal(false)}
-                  className="px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-750 text-white font-extrabold text-[10px] uppercase tracking-wider rounded-lg cursor-pointer transition-all shadow-xs"
-                >
-                  Save & Close
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* ═══ VIEW STUDENT CREDENTIALS MODAL OVERLAY ═══ */}
-      <AnimatePresence>
-        {showViewCredsModal && viewingLicCreds && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-slate-900/60 dark:bg-black/70 backdrop-blur-xs z-[9999] flex items-center justify-center p-4 font-sans select-none"
-          >
-            <motion.div 
-              initial={{ scale: 0.95, y: 10 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.95, y: 10 }}
-              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-xl w-full overflow-hidden text-slate-850 dark:text-white"
-            >
-              <div className="h-1 bg-gradient-to-r from-amber-500 via-orange-500 to-red-500" />
-              <div className="p-5 border-b border-slate-150 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50">
-                <div className="flex items-center gap-2">
-                  <KeyRound className="w-5 h-5 text-amber-500 dark:text-amber-400" />
-                  <div>
-                    <h3 className="text-sm font-black uppercase tracking-wider text-slate-850 dark:text-white">Active Student Credentials</h3>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
-                      View login details for license <span className="font-mono font-bold text-slate-600 dark:text-slate-350">{viewingLicCreds.id}</span>
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => { setShowViewCredsModal(false); setViewingLicCreds(null); }}
-                  className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-white/5 hover:text-slate-700 dark:hover:text-white transition-colors cursor-pointer font-bold"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <div className="p-6 space-y-5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
-                    Total Configured: {viewingLicCreds.studentAccounts?.length || 0} Accounts
-                  </span>
-                  
-                  <div className="flex gap-2">
-                    <input 
-                      type="text" 
-                      placeholder="Search accounts..." 
-                      value={credsViewSearchQuery}
-                      onChange={e => setCredsViewSearchQuery(e.target.value)}
-                      className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-855 px-2.5 py-1 text-[11px] rounded-lg focus:border-indigo-500 outline-none text-slate-850 dark:text-white"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const formatted = (viewingLicCreds.studentAccounts || [])
-                          .map(acc => `${acc.studentId},${acc.studentPassword}`)
-                          .join('\n');
-                        handleCopyToClipboard(`Student ID,Password\n${formatted}`, 'all-view');
-                      }}
-                      className="px-2.5 py-1 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 border border-amber-200 dark:border-amber-850 text-amber-600 dark:text-amber-400 text-[10px] font-bold rounded-lg cursor-pointer transition-colors"
-                      title="Copy all credentials as CSV"
-                    >
-                      {copiedStates['all-view'] ? '✓ Copied CSV' : '📋 Copy CSV'}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="border border-slate-150 dark:border-slate-800 rounded-xl overflow-hidden max-h-[300px] overflow-y-auto bg-slate-50/50 dark:bg-slate-950/20">
-                  {(!viewingLicCreds.studentAccounts || viewingLicCreds.studentAccounts.length === 0) ? (
-                    <div className="text-center py-12 text-xs text-slate-400 dark:text-slate-500">
-                      No custom credentials configured for this license.
-                    </div>
-                  ) : (
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="bg-slate-100 dark:bg-slate-900 border-b border-slate-150 dark:border-slate-800 text-[9px] uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                          <th className="p-2.5 font-bold">#</th>
-                          <th className="p-2.5 font-bold">Student ID</th>
-                          <th className="p-2.5 font-bold">Password</th>
-                          <th className="p-2.5 font-bold text-center">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-150 dark:divide-slate-800 text-xs font-mono text-slate-700 dark:text-slate-300">
-                        {viewingLicCreds.studentAccounts
-                          .filter(acc => 
-                            !credsViewSearchQuery.trim() || 
-                            acc.studentId.toLowerCase().includes(credsViewSearchQuery.toLowerCase())
-                          )
-                          .map((acc, idx) => {
-                            const mapKey = `${viewingLicCreds.id}-${idx}`;
-                            return (
-                              <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-white/3">
-                                <td className="p-2.5 text-slate-400 dark:text-slate-500">{idx + 1}</td>
-                                <td className="p-2.5 font-bold">{acc.studentId}</td>
-                                <td className="p-2.5 font-bold">
-                                  {revealedPasswords[mapKey] ? acc.studentPassword : '••••••'}
-                                </td>
-                                <td className="p-2.5 text-center">
-                                  <div className="flex justify-center items-center gap-1.5">
-                                    <button 
-                                      type="button" 
-                                      onClick={() => togglePasswordReveal(mapKey)} 
-                                      className="p-1 text-slate-450 hover:text-slate-700 dark:hover:text-slate-300 rounded hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                                      title={revealedPasswords[mapKey] ? "Hide Password" : "Show Password"}
-                                    >
-                                      {revealedPasswords[mapKey] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                                    </button>
-                                    <button 
-                                      type="button" 
-                                      onClick={() => handleCopyToClipboard(`${acc.studentId} / ${acc.studentPassword}`, mapKey)} 
-                                      className="p-1 text-slate-450 hover:text-slate-650 dark:hover:text-slate-300 rounded hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                                      title="Copy Credentials"
-                                    >
-                                      {copiedStates[mapKey] ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Clipboard className="w-3.5 h-3.5" />}
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              </div>
-
-              <div className="p-5 border-t border-slate-150 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => { setShowViewCredsModal(false); setViewingLicCreds(null); }}
-                  className="px-5 py-2.5 bg-slate-200 hover:bg-slate-250 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-350 font-extrabold text-[10px] uppercase tracking-wider rounded-lg cursor-pointer transition-all"
-                >
-                  Close
-                </button>
-              </div>
             </motion.div>
           </motion.div>
         )}

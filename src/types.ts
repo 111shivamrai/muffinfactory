@@ -40,6 +40,7 @@ export interface Session {
   allowedStudents?: string[];
   startDate?: string;
   endDate?: string;
+  instructorContracts?: Contract[];
 }
 
 export interface StationConfig {
@@ -181,14 +182,14 @@ export const DEFAULT_PARAMETERS: SimulationParameters = {
   storageCost: 1,
   rawMaterialUnitPrice: 8,
   backorderPenalty: 2,
-  initialBalance: 2000000,
+  initialBalance: 50000,
   initialRawMaterials: 12000,
   initialCapacity: 72,
   baseLeadTime: 1, // Default to 1 day
 };
 
 export const INITIAL_VALUES = {
-  BALANCE: 2000000,
+  BALANCE: 50000,
   RAW_MATERIALS: 12000,
   CAPACITY: 72, // per round
   STORAGE_COST: 1, // per unit in inventory
@@ -196,10 +197,10 @@ export const INITIAL_VALUES = {
 };
 
 export const DEFAULT_STATIONS = {
-  mixing: { owned: 2, active: 2, capacityPerMachine: 54, purchasePrice: 62720 },
-  bottling: { owned: 3, active: 3, capacityPerMachine: 24, purchasePrice: 114066 },
-  icing: { owned: 2, active: 1, capacityPerMachine: 55, purchasePrice: 83544 },
-  packaging: { owned: 1, active: 1, capacityPerMachine: 216, purchasePrice: 46000 }
+  mixing: { owned: 2, active: 2, capacityPerMachine: 54, purchasePrice: 15000 },
+  bottling: { owned: 3, active: 3, capacityPerMachine: 24, purchasePrice: 20000 },
+  icing: { owned: 2, active: 1, capacityPerMachine: 55, purchasePrice: 12000 },
+  packaging: { owned: 1, active: 1, capacityPerMachine: 216, purchasePrice: 10000 }
 };
 
 export interface License {
@@ -214,9 +215,6 @@ export interface License {
   notes?: string;
   instructorId?: string;
   instructorPassword?: string;
-  studentId?: string;
-  studentPassword?: string;
-  studentAccounts?: { studentId: string; studentPassword: string; }[];
 }
 
 export interface SystemLog {
