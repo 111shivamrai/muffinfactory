@@ -1454,7 +1454,7 @@ export function MarketingLandingPage({ login, setIsDirectPlay }: Props) {
                     date: new Date().toLocaleString(),
                   };
 
-                  emailjs.send('service_5pcx4hw', 'template_r9639yf', templateParams, 'TmzldpiycMQDEttvp')
+                  emailjs.send('service_5pcx4hw', 'template_r9639yf', templateParams, { publicKey: 'TmzldpiycMQDEttvp' })
                     .then(() => console.log("Email sent successfully"))
                     .catch(err => console.error("EmailJS error:", err));
                   setQuoteStep(2);
@@ -1844,7 +1844,7 @@ export function MarketingLandingPage({ login, setIsDirectPlay }: Props) {
                       date: new Date().toLocaleString(),
                     };
 
-                    emailjs.send('service_5pcx4hw', 'template_r9639yf', templateParams, 'TmzldpiycMQDEttvp')
+                    emailjs.send('service_5pcx4hw', 'template_r9639yf', templateParams, { publicKey: 'TmzldpiycMQDEttvp' })
                       .then(() => console.log("Email sent successfully"))
                       .catch(err => console.error("EmailJS error:", err));
                     setDemoStep(2);
