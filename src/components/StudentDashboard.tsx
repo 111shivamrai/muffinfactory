@@ -1696,7 +1696,7 @@ export function StudentDashboard() {
           {/* Panel 2: Workfloor Activity */}
           <div className="bg-white border-[3px] border-[#4a2c11] rounded-xl shadow-[0_3px_0_#4a2c11] overflow-hidden flex flex-col min-h-0 flex-1">
             <div className="bg-[#9f7eb8] muffin-card-header text-white" style={{ padding: '6px 12px', fontSize: '12px', borderBottomWidth: '3px' }}>
-              <span className="text-[11px] uppercase tracking-wider font-extrabold">Workfloor Activity</span>
+              <span className="text-[11px] uppercase tracking-wider font-extrabold">Factory Floor</span>
               <span className={`text-sm ${mixingRunning + bakingRunning + icingRunning + packingRunning > 0 ? 'gear-spin-active' : ''}`}>⚙️</span>
             </div>
 
@@ -1721,7 +1721,7 @@ export function StudentDashboard() {
                   <tr>
                     <td className="py-[1px] text-[11.5px] font-extrabold text-[#4a2c11] relative">
                       <div className="flex items-center gap-1.5">
-                        🥣 Mixing
+                        🥣 Mixer
                       </div>
                     </td>
                     <td className="py-[1px]">
@@ -1745,11 +1745,11 @@ export function StudentDashboard() {
                     <td className="py-[1px] text-center text-[11.5px] font-black text-[#4a2c11]">{mixingOwned}</td>
                     <td className="py-[1px]">
                       <div className="flex flex-col items-center gap-0.5">
-                        <span className="text-[9.5px] font-mono leading-none text-[#4a2c11]">{mixingOwned > 0 ? Math.round((mixingRunning / mixingOwned) * 100) : 0}%</span>
+                        <span className="text-[9.5px] font-mono leading-none text-[#4a2c11]">{mixingOwned > 0 ? Math.round((activeCapMin / (mixingOwned * 54)) * 100) : 0}%</span>
                         <div className="muffin-progress-bg w-[60px] h-[6px] mx-auto">
                           <div 
                             className="muffin-progress-fill bg-[#89b873] h-full"
-                            style={{ width: `${mixingOwned > 0 ? (mixingRunning / mixingOwned) * 100 : 0}%` }}
+                            style={{ width: `${mixingOwned > 0 ? (activeCapMin / (mixingOwned * 54)) * 100 : 0}%` }}
                           />
                         </div>
                       </div>
@@ -1760,7 +1760,7 @@ export function StudentDashboard() {
                   <tr>
                     <td className="py-[1px] text-[11.5px] font-extrabold text-[#4a2c11] relative">
                       <div className="flex items-center gap-1.5">
-                        🔥 Baking
+                        🔥 Oven
                       </div>
                     </td>
                     <td className="py-[1px]">
@@ -1784,11 +1784,11 @@ export function StudentDashboard() {
                     <td className="py-[1px] text-center text-[11.5px] font-black text-[#4a2c11]">{bakingOwned}</td>
                     <td className="py-[1px]">
                       <div className="flex flex-col items-center gap-0.5">
-                        <span className="text-[9.5px] font-mono leading-none text-[#4a2c11]">{bakingOwned > 0 ? Math.round((bakingRunning / bakingOwned) * 100) : 0}%</span>
+                        <span className="text-[9.5px] font-mono leading-none text-[#4a2c11]">{bakingOwned > 0 ? Math.round((activeCapMin / (bakingOwned * 24)) * 100) : 0}%</span>
                         <div className="muffin-progress-bg w-[60px] h-[6px] mx-auto">
                           <div 
                             className="muffin-progress-fill bg-[#ffb74d] h-full"
-                            style={{ width: `${bakingOwned > 0 ? (bakingRunning / bakingOwned) * 100 : 0}%` }}
+                            style={{ width: `${bakingOwned > 0 ? (activeCapMin / (bakingOwned * 24)) * 100 : 0}%` }}
                           />
                         </div>
                       </div>
@@ -1799,7 +1799,7 @@ export function StudentDashboard() {
                   <tr>
                     <td className="py-[1px] text-[11.5px] font-extrabold text-[#4a2c11] relative">
                       <div className="flex items-center gap-1.5">
-                        🧁 Icing
+                        🧁 Icing Machine
                       </div>
                     </td>
                     <td className="py-[1px]">
@@ -1823,11 +1823,11 @@ export function StudentDashboard() {
                     <td className="py-[1px] text-center text-[11.5px] font-black text-[#4a2c11]">{icingOwned}</td>
                     <td className="py-[1px]">
                       <div className="flex flex-col items-center gap-0.5">
-                        <span className="text-[9.5px] font-mono leading-none text-[#4a2c11]">{icingOwned > 0 ? Math.round((icingRunning / icingOwned) * 100) : 0}%</span>
+                        <span className="text-[9.5px] font-mono leading-none text-[#4a2c11]">{icingOwned > 0 ? Math.round((activeCapMin / (icingOwned * 55)) * 100) : 0}%</span>
                         <div className="muffin-progress-bg w-[60px] h-[6px] mx-auto">
                           <div 
                             className="muffin-progress-fill bg-[#f06292] h-full"
-                            style={{ width: `${icingOwned > 0 ? (icingRunning / icingOwned) * 100 : 0}%` }}
+                            style={{ width: `${icingOwned > 0 ? (activeCapMin / (icingOwned * 55)) * 100 : 0}%` }}
                           />
                         </div>
                       </div>
@@ -1838,7 +1838,7 @@ export function StudentDashboard() {
                   <tr>
                     <td className="py-[1px] text-[11.5px] font-extrabold text-[#4a2c11] relative">
                       <div className="flex items-center gap-1.5">
-                        📦 Packaging
+                        📦 Packaging Machine
                       </div>
                     </td>
                     <td className="py-[1px]">
@@ -1862,11 +1862,11 @@ export function StudentDashboard() {
                     <td className="py-[1px] text-center text-[11.5px] font-black text-[#4a2c11]">{packingOwned}</td>
                     <td className="py-[1px]">
                       <div className="flex flex-col items-center gap-0.5">
-                        <span className="text-[9.5px] font-mono leading-none text-[#4a2c11]">{packingOwned > 0 ? Math.round((packingRunning / packingOwned) * 100) : 0}%</span>
+                        <span className="text-[9.5px] font-mono leading-none text-[#4a2c11]">{packingOwned > 0 ? Math.round((activeCapMin / (packingOwned * 216)) * 100) : 0}%</span>
                         <div className="muffin-progress-bg w-[60px] h-[6px] mx-auto">
                           <div 
                             className="muffin-progress-fill bg-[#4db6ac] h-full"
-                            style={{ width: `${packingOwned > 0 ? (packingRunning / packingOwned) * 100 : 0}%` }}
+                            style={{ width: `${packingOwned > 0 ? (activeCapMin / (packingOwned * 216)) * 100 : 0}%` }}
                           />
                         </div>
                       </div>

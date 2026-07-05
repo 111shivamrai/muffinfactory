@@ -291,6 +291,12 @@ export function MuffinFactoryDashboardPreview() {
   // Determine if system bottleneck alert should show
   const isAnyStationOffline = mixingRunning === 0 || bakingRunning === 0 || icingRunning === 0 || packingRunning === 0;
 
+  const mixingCap = mixingRunning * 54;
+  const bakingCap = bakingRunning * 24;
+  const icingCap = icingRunning * 55;
+  const packingCap = packingRunning * 216;
+  const activeCapMin = Math.min(mixingCap, bakingCap, icingCap, packingCap);
+
   // Render a moving muffin on the conveyor belt
   const MuffinConveyorItem = ({ delay, speed }: { delay: string; speed: number }) => {
     return (
@@ -992,7 +998,7 @@ export function MuffinFactoryDashboardPreview() {
           {/* Workfloor Activity Card */}
           <div className="muffin-card" style={{ marginBottom: 0 }}>
             <div className="muffin-card-header" style={{ backgroundColor: '#9f7eb8' }}>
-              <span>Workfloor Activity</span>
+              <span>Factory Floor</span>
               <span className={mixingRunning + bakingRunning + icingRunning + packingRunning > 0 ? 'gear-spin-active' : ''} style={{ fontSize: '14px' }}>⚙️</span>
             </div>
             <div className="muffin-card-content">
@@ -1008,7 +1014,7 @@ export function MuffinFactoryDashboardPreview() {
                 </thead>
                 <tbody>
                   <tr>
-                    <td>🥣 Mixing</td>
+                    <td>🥣 Mixer</td>
                     <td>
                       <div className="qty-control">
                         <div className="qty-btn" onClick={decrementMixing}>-</div>
@@ -1019,12 +1025,12 @@ export function MuffinFactoryDashboardPreview() {
                     <td style={{ textAlign: 'center' }}>3</td>
                     <td>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}>
-                        <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{Math.round((mixingRunning / 3) * 100)}%</span>
+                        <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{Math.round((activeCapMin / 162) * 100)}%</span>
                         <div className="muffin-progress-bg" style={{ width: '70px', height: '6px' }}>
                           <div
                             className="muffin-progress-fill"
                             style={{
-                              width: `${Math.round((mixingRunning / 3) * 100)}%`,
+                              width: `${Math.round((activeCapMin / 162) * 100)}%`,
                               backgroundColor: '#89b873',
                               height: '100%'
                             }}
@@ -1039,7 +1045,7 @@ export function MuffinFactoryDashboardPreview() {
                     </td>
                   </tr>
                   <tr>
-                    <td>🔥 Baking</td>
+                    <td>🔥 Oven</td>
                     <td>
                       <div className="qty-control">
                         <div className="qty-btn" onClick={decrementBaking}>-</div>
@@ -1050,12 +1056,12 @@ export function MuffinFactoryDashboardPreview() {
                     <td style={{ textAlign: 'center' }}>3</td>
                     <td>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}>
-                        <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{Math.round((bakingRunning / 3) * 100)}%</span>
+                        <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{Math.round((activeCapMin / 72) * 100)}%</span>
                         <div className="muffin-progress-bg" style={{ width: '70px', height: '6px' }}>
                           <div
                             className="muffin-progress-fill"
                             style={{
-                              width: `${Math.round((bakingRunning / 3) * 100)}%`,
+                              width: `${Math.round((activeCapMin / 72) * 100)}%`,
                               backgroundColor: '#ffb74d',
                               height: '100%'
                             }}
@@ -1070,7 +1076,7 @@ export function MuffinFactoryDashboardPreview() {
                     </td>
                   </tr>
                   <tr>
-                    <td>🧁 Icing</td>
+                    <td>🧁 Icing Machine</td>
                     <td>
                       <div className="qty-control">
                         <div className="qty-btn" onClick={decrementIcing}>-</div>
@@ -1081,12 +1087,12 @@ export function MuffinFactoryDashboardPreview() {
                     <td style={{ textAlign: 'center' }}>2</td>
                     <td>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}>
-                        <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{Math.round((icingRunning / 2) * 100)}%</span>
+                        <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{Math.round((activeCapMin / 110) * 100)}%</span>
                         <div className="muffin-progress-bg" style={{ width: '70px', height: '6px' }}>
                           <div
                             className="muffin-progress-fill"
                             style={{
-                              width: `${Math.round((icingRunning / 2) * 100)}%`,
+                              width: `${Math.round((activeCapMin / 110) * 100)}%`,
                               backgroundColor: '#f06292',
                               height: '100%'
                             }}
@@ -1101,7 +1107,7 @@ export function MuffinFactoryDashboardPreview() {
                     </td>
                   </tr>
                   <tr>
-                    <td>📦 Packaging</td>
+                    <td>📦 Packaging Machine</td>
                     <td>
                       <div className="qty-control">
                         <div className="qty-btn" onClick={decrementPacking}>-</div>
@@ -1112,12 +1118,12 @@ export function MuffinFactoryDashboardPreview() {
                     <td style={{ textAlign: 'center' }}>1</td>
                     <td>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}>
-                        <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{Math.round((packingRunning / 1) * 100)}%</span>
+                        <span style={{ fontSize: '11px', fontFamily: 'monospace' }}>{Math.round((activeCapMin / 216) * 100)}%</span>
                         <div className="muffin-progress-bg" style={{ width: '70px', height: '6px' }}>
                           <div
                             className="muffin-progress-fill"
                             style={{
-                              width: `${Math.round((packingRunning / 1) * 100)}%`,
+                              width: `${Math.round((activeCapMin / 216) * 100)}%`,
                               backgroundColor: '#4db6ac',
                               height: '100%'
                             }}
