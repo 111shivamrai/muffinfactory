@@ -51,177 +51,6 @@ export function calculateDemand(
   return demand;
 }
 
-// Full pool of all available contracts in the game
-export function getAllContractPool(): Contract[] {
-  return [
-    {
-      id: 'valmart',
-      name: 'Valmart',
-      appearsAtDay: 1,
-      beginsAtDay: 4,
-      endsAtDay: 11,
-      dailyDemand: 80,
-      pricePerUnit: 22,
-      fillRateRequired: 85,
-      fillRatePenalty: 500,
-      exitPenalty: 5000,
-      status: 'offered',
-      deliveredCount: 0,
-      demandedCount: 0
-    },
-    {
-      id: 'quickbite',
-      name: 'QuickBite',
-      appearsAtDay: 1,
-      beginsAtDay: 3,
-      endsAtDay: 8,
-      dailyDemand: 50,
-      pricePerUnit: 30,
-      fillRateRequired: 80,
-      fillRatePenalty: 300,
-      exitPenalty: 3000,
-      status: 'offered',
-      deliveredCount: 0,
-      demandedCount: 0
-    },
-    {
-      id: 'munchbox',
-      name: 'MunchBox',
-      appearsAtDay: 2,
-      beginsAtDay: 5,
-      endsAtDay: 14,
-      dailyDemand: 120,
-      pricePerUnit: 26,
-      fillRateRequired: 88,
-      fillRatePenalty: 600,
-      exitPenalty: 8000,
-      status: 'pending',
-      deliveredCount: 0,
-      demandedCount: 0
-    },
-    {
-      id: 'snackco',
-      name: 'SnackCo',
-      appearsAtDay: 2,
-      beginsAtDay: 6,
-      endsAtDay: 15,
-      dailyDemand: 150,
-      pricePerUnit: 28,
-      fillRateRequired: 88,
-      fillRatePenalty: 700,
-      exitPenalty: 10000,
-      status: 'pending',
-      deliveredCount: 0,
-      demandedCount: 0
-    },
-    {
-      id: 'freshmart',
-      name: 'FreshMart',
-      appearsAtDay: 3,
-      beginsAtDay: 8,
-      endsAtDay: 18,
-      dailyDemand: 200,
-      pricePerUnit: 32,
-      fillRateRequired: 90,
-      fillRatePenalty: 800,
-      exitPenalty: 15000,
-      status: 'pending',
-      deliveredCount: 0,
-      demandedCount: 0
-    },
-    {
-      id: 'premiumeats',
-      name: 'PremiumEats',
-      appearsAtDay: 4,
-      beginsAtDay: 10,
-      endsAtDay: 16,
-      dailyDemand: 90,
-      pricePerUnit: 50,
-      fillRateRequired: 92,
-      fillRatePenalty: 900,
-      exitPenalty: 12000,
-      status: 'pending',
-      deliveredCount: 0,
-      demandedCount: 0
-    },
-    {
-      id: 'tresco',
-      name: 'Tresco',
-      appearsAtDay: 5,
-      beginsAtDay: 12,
-      endsAtDay: 20,
-      dailyDemand: 300,
-      pricePerUnit: 38,
-      fillRateRequired: 95,
-      fillRatePenalty: 1000,
-      exitPenalty: 47500,
-      status: 'pending',
-      deliveredCount: 0,
-      demandedCount: 0
-    },
-    {
-      id: 'megastore',
-      name: 'MegaStore',
-      appearsAtDay: 6,
-      beginsAtDay: 14,
-      endsAtDay: 22,
-      dailyDemand: 500,
-      pricePerUnit: 45,
-      fillRateRequired: 97,
-      fillRatePenalty: 2000,
-      exitPenalty: 75000,
-      status: 'pending',
-      deliveredCount: 0,
-      demandedCount: 0
-    }
-  ];
-}
-
-// Assigns a unique random subset of contracts to a student based on their ID
-// Same studentId always produces the same contract set (deterministic via seed)
-// Different studentIds always produce different contract sets
-export function getContractsForStudent(studentId: string): Contract[] {
-  // Deterministic seed from studentId so the same student always gets the same contracts
-  // even if they log out and back in
-  const seed = studentId.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
-
-  const pool = getAllContractPool();
-
-  // Separate early contracts (appear day 1–2, good for onboarding) from later ones
-  const earlyContracts = pool.filter(c => c.appearsAtDay <= 2); // valmart, quickbite, munchbox, snackco
-  const lateContracts = pool.filter(c => c.appearsAtDay >= 3);  // freshmart, premiumeats, tresco, megastore
-
-  // Shuffle each group using the seed so different students get different picks
-  const shuffleDeterministic = (arr: Contract[], offset: number): Contract[] => {
-    return [...arr].sort((a, b) => {
-      const hashA = (seed + offset + a.id.charCodeAt(0)) % 7;
-      const hashB = (seed + offset + b.id.charCodeAt(0)) % 7;
-      return hashA - hashB;
-    });
-  };
-
-  const shuffledEarly = shuffleDeterministic(earlyContracts, 0);
-  const shuffledLate = shuffleDeterministic(lateContracts, 100);
-
-  // Each student gets:
-  // - 1 early contract (appears at start, already offered)
-  // - 1–2 late contracts (appear mid-game as pending)
-  const totalLateCount = (seed % 2 === 0) ? 2 : 1; // some students get 2 late, others get 1
-
-  const assigned = [
-    shuffledEarly[0],                          // 1 early contract
-    ...shuffledLate.slice(0, totalLateCount)   // 1 or 2 late contracts
-  ];
-
-  // Deep copy to ensure no shared state between students
-  return JSON.parse(JSON.stringify(assigned));
-}
-
-// Keep getInitialContracts as a fallback alias for direct play / legacy code
-export function getInitialContracts(): Contract[] {
-  return getContractsForStudent('default');
-}
-
 export function processDecision(
   team: Team,
   decision: Decision,
@@ -231,6 +60,7 @@ export function processDecision(
   event?: GameEvent | null,
   parameters: SimulationParameters = DEFAULT_PARAMETERS
 ): { updatedTeam: Team; result: RoundResult } {
+  const safeParameters = parameters ?? DEFAULT_PARAMETERS;
   
   // Initialize customizable properties on team if missing
   const stations = team.stations || JSON.parse(JSON.stringify(DEFAULT_STATIONS));
@@ -241,7 +71,7 @@ export function processDecision(
   }
   
   const deliveries: Delivery[] = team.deliveries || [];
-  const contracts: Contract[] = team.contracts || getInitialContracts();
+  const contracts: Contract[] = team.contracts || [];
   
   // Helper to safely parse numbers
   const safeNum = (val: any, fallback: number) => (typeof val === 'number' && !isNaN(val)) ? val : fallback;
@@ -262,7 +92,7 @@ export function processDecision(
   const cocoaQ = safeNum(team.cocoaOrderQty, 800);
   const cocoaR = safeNum(team.cocoaROP, 200);
 
-  let rawMaterialPrice = parameters.rawMaterialUnitPrice;
+  let rawMaterialPrice = safeParameters.rawMaterialUnitPrice;
   if (event?.type === 'material_shortage') {
     if (event.severity === 'low') rawMaterialPrice *= 1.5;
     if (event.severity === 'medium') rawMaterialPrice *= 2.0;
@@ -334,7 +164,7 @@ export function processDecision(
   cocoa -= actualProduction;
 
   // Incur daily variable production charge
-  const standardProduct = parameters.products.find(p => p.id === 'standard') || PRODUCTS[0];
+  const standardProduct = safeParameters.products.find(p => p.id === 'standard') || PRODUCTS[0];
   const productionCost = actualProduction * standardProduct.productionCost;
   let finishedGoodsStock = (team.inventory['standard'] || 0) + actualProduction;
 
@@ -343,27 +173,27 @@ export function processDecision(
   let rawMaterialOrderCost = 0;
 
   // Flour
-  const incomingFlour = remainingDeliveries.filter(d => d.item === 'flour' || !d.item).reduce((acc, d) => acc + d.quantity, 0);
+  const incomingFlour = remainingDeliveries.filter(d => d.item === 'flour').reduce((acc, d) => acc + d.quantity, 0);
   if (flour + incomingFlour <= flourR) {
-    remainingDeliveries.push({ roundArriving: round + parameters.baseLeadTime, quantity: flourQ, item: 'flour' });
+    remainingDeliveries.push({ roundArriving: round + safeParameters.baseLeadTime, quantity: flourQ, item: 'flour' });
     rawMaterialOrderCost += (flourQ * rawMaterialPrice) + 100;
   }
   // Sugar
   const incomingSugar = remainingDeliveries.filter(d => d.item === 'sugar').reduce((acc, d) => acc + d.quantity, 0);
   if (sugar + incomingSugar <= sugarR) {
-    remainingDeliveries.push({ roundArriving: round + parameters.baseLeadTime, quantity: sugarQ, item: 'sugar' });
+    remainingDeliveries.push({ roundArriving: round + safeParameters.baseLeadTime, quantity: sugarQ, item: 'sugar' });
     rawMaterialOrderCost += (sugarQ * rawMaterialPrice) + 100;
   }
   // Eggs
   const incomingEggs = remainingDeliveries.filter(d => d.item === 'eggs').reduce((acc, d) => acc + d.quantity, 0);
   if (eggs + incomingEggs <= eggsR) {
-    remainingDeliveries.push({ roundArriving: round + parameters.baseLeadTime, quantity: eggsQ, item: 'eggs' });
+    remainingDeliveries.push({ roundArriving: round + safeParameters.baseLeadTime, quantity: eggsQ, item: 'eggs' });
     rawMaterialOrderCost += (eggsQ * rawMaterialPrice) + 100;
   }
   // Cocoa
   const incomingCocoa = remainingDeliveries.filter(d => d.item === 'cocoa').reduce((acc, d) => acc + d.quantity, 0);
   if (cocoa + incomingCocoa <= cocoaR) {
-    remainingDeliveries.push({ roundArriving: round + parameters.baseLeadTime, quantity: cocoaQ, item: 'cocoa' });
+    remainingDeliveries.push({ roundArriving: round + safeParameters.baseLeadTime, quantity: cocoaQ, item: 'cocoa' });
     rawMaterialOrderCost += (cocoaQ * rawMaterialPrice) + 100;
   }
 
@@ -424,7 +254,7 @@ export function processDecision(
   const totalRevenue = contractRevenue + retailRevenue;
 
   // 5. Carry Holding storage fees
-  const holdingCharges = finishedGoodsStock * parameters.storageCost; // $1.00 per bottle remaining
+  const holdingCharges = finishedGoodsStock * safeParameters.storageCost; // $1.00 per bottle remaining
   
   // 6. Interest Compounding
   const interestRate = 0.10 / 365;
@@ -444,21 +274,21 @@ export function processDecision(
   });
 
   // Dynamic Difficulty Multiplier to adjust Opex costs slightly based on balance
-  const difficultyMultiplier = 1 + Math.log10(Math.max(1, (team.balance || 2000000) / 1000000));
+  const difficultyMultiplier = 1;
 
   const opexProduction = Math.round(productionCost * difficultyMultiplier);
   const opexRawMaterial = Math.round(rawMaterialOrderCost * difficultyMultiplier);
   const opexHolding = Math.round(holdingCharges * difficultyMultiplier);
-  const opexBackorder = Math.round(missedRetailDemand * parameters.backorderPenalty * difficultyMultiplier);
+  const opexBackorder = Math.round(missedRetailDemand * safeParameters.backorderPenalty * difficultyMultiplier);
 
-  const totalOpex = opexProduction + opexRawMaterial + opexHolding + contractPenalties + opexBackorder;
+  const totalOpex = opexProduction + opexRawMaterial + opexHolding + contractPenalties + opexBackorder + decision.marketingSpend;
   const profit = totalRevenue - totalOpex + compoundingInterest;
   const nextBalance = team.balance + profit;
 
   // Service Level Rating update
   const totalDayDemanded = totalContractDemanded + retailDemand;
   const totalDayDelivered = totalContractDelivered + deliveredRetail;
-  const serviceLevelIndex = totalDayDemanded > 0 ? (totalDayDelivered / totalDayDemanded) : 1;
+  const serviceLevelIndex = Math.min(1, totalDayDemanded > 0 ? (totalDayDelivered / totalDayDemanded) : 1);
   const nextSatisfaction = Math.max(0, Math.min(100, Math.round((team.satisfaction * 0.9) + (serviceLevelIndex * 10))));
 
   const updatedTeam: Team = {
@@ -502,7 +332,7 @@ export function processDecision(
     inventoryCost: holdingCharges,
     rawMaterialCost: rawMaterialOrderCost,
     marketingCost: decision.marketingSpend,
-    penalties: contractPenalties + (missedRetailDemand * parameters.backorderPenalty),
+    penalties: contractPenalties + (missedRetailDemand * safeParameters.backorderPenalty),
     balanceAfter: nextBalance
   };
 

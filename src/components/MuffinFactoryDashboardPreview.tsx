@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AnimatedFactoryFloor } from './AnimatedFactoryFloor';
+import { AnimatedFactoryFloor } from './AnimatedFactoryFloor.tsx';
 import { motion, AnimatePresence } from 'motion/react';
 
 // Helper animation components for counting up values smoothly

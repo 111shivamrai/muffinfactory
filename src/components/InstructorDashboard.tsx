@@ -38,9 +38,10 @@ import {
   Loader2
 } from 'lucide-react';
 import { Difficulty, GameEvent, EventType, Session, Team, Contract, DEFAULT_PARAMETERS } from '../types';
-import { Timer } from './Timer';
+import { Timer } from './Timer.tsx';
 import { db } from '../firebase';
 import { doc, updateDoc, deleteDoc, getDocs, collectionGroup, collection, query, orderBy, where } from 'firebase/firestore';
+
 
 // Preset scenarios from the Professor Manual (Muffin Experiences)
 const PRESET_SCENARIOS = [
@@ -211,7 +212,10 @@ export function InstructorDashboard() {
     updateSession,
     updateTeamState,
     deleteTeamState,
-    logout
+    logout,
+    overrideContracts,
+    addInstructorContract,
+    removeInstructorContract
   } = useGame();
   const isDark = theme === 'dark';
 
@@ -237,6 +241,101 @@ export function InstructorDashboard() {
     setIsDirectPlay(false);
     window.location.hash = '';
     await logout();
+  };
+
+  // Contract Manager states
+  const [newContractName, setNewContractName] = useState('');
+  const [newContractAppears, setNewContractAppears] = useState(1);
+  const [newContractBegins, setNewContractBegins] = useState(2);
+  const [newContractEnds, setNewContractEnds] = useState(10);
+  const [newContractDemand, setNewContractDemand] = useState(50);
+  const [newContractPrice, setNewContractPrice] = useState(25);
+  const [newContractFillRate, setNewContractFillRate] = useState(85);
+  const [newContractFillPenalty, setNewContractFillPenalty] = useState(500);
+  const [newContractExitPenalty, setNewContractExitPenalty] = useState(1000);
+  const [contractFormErrors, setContractFormErrors] = useState<Record<string, string>>({});
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage(null);
+    }, 3000);
+  };
+
+  const handlePushContract = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const errors: Record<string, string> = {};
+
+    if (!newContractName.trim()) {
+      errors.name = 'Contract name is required';
+    }
+    if (newContractBegins <= newContractAppears) {
+      errors.begins = 'Active from Day must be after Appears on Day';
+    }
+    if (newContractEnds <= newContractBegins) {
+      errors.ends = 'Active until Day must be after Active from Day';
+    }
+    if (newContractDemand <= 0) {
+      errors.demand = 'Daily Demand must be greater than 0';
+    }
+    if (newContractPrice <= 0) {
+      errors.price = 'Price per Unit must be greater than 0';
+    }
+    if (newContractFillRate < 1 || newContractFillRate > 100) {
+      errors.fillRate = 'Fill Rate must be between 1% and 100%';
+    }
+    if (newContractFillPenalty < 0) {
+      errors.fillPenalty = 'Penalty must be 0 or greater';
+    }
+    if (newContractExitPenalty < 0) {
+      errors.exitPenalty = 'Exit Penalty must be 0 or greater';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setContractFormErrors(errors);
+      playBeep(220, 'sawtooth', 0.15);
+      return;
+    }
+
+    setContractFormErrors({});
+
+    try {
+      await addInstructorContract({
+        name: newContractName.trim(),
+        appearsAtDay: newContractAppears,
+        beginsAtDay: newContractBegins,
+        endsAtDay: newContractEnds,
+        dailyDemand: newContractDemand,
+        pricePerUnit: newContractPrice,
+        fillRateRequired: newContractFillRate,
+        fillRatePenalty: newContractFillPenalty,
+        exitPenalty: newContractExitPenalty,
+      });
+
+      showToast(`Contract pushed to all ${allTeams.length} teams`);
+      playBeep(523, 'sine', 0.1);
+      
+      // Clear the form
+      setNewContractName('');
+      setNewContractAppears(1);
+      setNewContractBegins(2);
+      setNewContractEnds(10);
+      setNewContractDemand(50);
+      setNewContractPrice(25);
+      setNewContractFillRate(85);
+      setNewContractFillPenalty(500);
+      setNewContractExitPenalty(1000);
+    } catch (err: any) {
+      alert(`Failed to add contract: ${err.message}`);
+    }
+  };
+
+  const getInstructorContractStatus = (c: Contract, currentDay: number) => {
+    if (currentDay < c.appearsAtDay) return 'PENDING';
+    if (currentDay >= c.appearsAtDay && currentDay < c.beginsAtDay) return 'OFFERED';
+    if (currentDay >= c.beginsAtDay && currentDay <= c.endsAtDay) return 'ACTIVE';
+    return 'FINISHED';
   };
 
   // Tab Navigation state
@@ -268,6 +367,7 @@ export function InstructorDashboard() {
   const [interveneMaterials, setInterveneMaterials] = useState('');
   const [interveneQ, setInterveneQ] = useState('');
   const [interveneR, setInterveneR] = useState('');
+  const [interveneContracts, setInterveneContracts] = useState<string[]>([]);
 
   // 6-Step Scenario Config Creator Wizard
   const [showWizard, setShowWizard] = useState(false);
@@ -741,6 +841,9 @@ export function InstructorDashboard() {
 
       await updateTeamState(inspectTeam.id, updates);
       
+      // Also apply contract override
+      await overrideContracts(inspectTeam.id, interveneContracts);
+
       showAlert(`Factory parameters override for ${inspectTeam.name} successfully updated!`, "Override Saved");
       setInspectTeam(null);
     } catch {
@@ -755,6 +858,7 @@ export function InstructorDashboard() {
     setInterveneMaterials(team.rawMaterials.toString());
     setInterveneQ((team.orderQuantity ?? 12000).toString());
     setInterveneR((team.reorderPoint ?? 2300).toString());
+    setInterveneContracts(team.contracts?.map(c => c.id) || []);
   };
 
   // 6-Step Scenario builder triggers
@@ -1581,6 +1685,238 @@ export function InstructorDashboard() {
                 )}
               </section>
 
+              {/* Standalone Contract Manager Panel */}
+              <section className="bcard space-y-4 text-left">
+                <div className="border-b border-muffin-brown/10 pb-3">
+                  <h2 className="font-sans font-black text-sm uppercase tracking-wider text-muffin-brown dark:text-muffin-cream flex items-center gap-2">
+                    📋 Contract Manager
+                  </h2>
+                  <p className="text-[9px] uppercase font-mono font-bold text-gray-500">
+                    Create and push custom distribution contracts to all student teams
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Section A: Create New Contract */}
+                  <div className="space-y-4">
+                    <h3 className="text-xs uppercase font-black tracking-wider text-[#8c7662]">
+                      Create New Contract
+                    </h3>
+                    <form onSubmit={handlePushContract} className="space-y-3">
+                      <div className="space-y-1">
+                        <label className="text-[9px] uppercase font-bold text-gray-500 block">Contract Name</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Super Mart Wholesale"
+                          value={newContractName}
+                          onChange={(e) => setNewContractName(e.target.value)}
+                          className="w-full p-2 bg-white dark:bg-zinc-900 border border-muffin-brown/20 rounded font-mono text-xs text-dynamic-text focus:border-muffin-gold outline-none"
+                        />
+                        {contractFormErrors.name && (
+                          <span className="text-[9.5px] font-bold text-red-500 block">{contractFormErrors.name}</span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="space-y-1">
+                          <label className="text-[9px] uppercase font-bold text-gray-500 block">Appears on Day</label>
+                          <input
+                            type="number"
+                            min={1}
+                            value={newContractAppears}
+                            onChange={(e) => setNewContractAppears(parseInt(e.target.value) || 1)}
+                            className="w-full p-2 bg-white dark:bg-zinc-900 border border-muffin-brown/20 rounded font-mono text-xs text-dynamic-text focus:border-muffin-gold outline-none"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] uppercase font-bold text-gray-500 block">Active from Day</label>
+                          <input
+                            type="number"
+                            min={1}
+                            value={newContractBegins}
+                            onChange={(e) => setNewContractBegins(parseInt(e.target.value) || 1)}
+                            className="w-full p-2 bg-white dark:bg-zinc-900 border border-muffin-brown/20 rounded font-mono text-xs text-dynamic-text focus:border-muffin-gold outline-none"
+                          />
+                          {contractFormErrors.begins && (
+                            <span className="text-[8px] font-bold text-red-500 block">{contractFormErrors.begins}</span>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] uppercase font-bold text-gray-500 block">Active until Day</label>
+                          <input
+                            type="number"
+                            min={1}
+                            value={newContractEnds}
+                            onChange={(e) => setNewContractEnds(parseInt(e.target.value) || 1)}
+                            className="w-full p-2 bg-white dark:bg-zinc-900 border border-muffin-brown/20 rounded font-mono text-xs text-dynamic-text focus:border-muffin-gold outline-none"
+                          />
+                          {contractFormErrors.ends && (
+                            <span className="text-[8px] font-bold text-red-500 block">{contractFormErrors.ends}</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="space-y-1">
+                          <label className="text-[9px] uppercase font-bold text-gray-500 block">Daily Demand (un)</label>
+                          <input
+                            type="number"
+                            min={1}
+                            value={newContractDemand}
+                            onChange={(e) => setNewContractDemand(parseInt(e.target.value) || 1)}
+                            className="w-full p-2 bg-white dark:bg-zinc-900 border border-muffin-brown/20 rounded font-mono text-xs text-dynamic-text focus:border-muffin-gold outline-none"
+                          />
+                          {contractFormErrors.demand && (
+                            <span className="text-[8px] font-bold text-red-500 block">{contractFormErrors.demand}</span>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] uppercase font-bold text-gray-500 block">Price per Unit (₹)</label>
+                          <input
+                            type="number"
+                            min={1}
+                            value={newContractPrice}
+                            onChange={(e) => setNewContractPrice(parseInt(e.target.value) || 1)}
+                            className="w-full p-2 bg-white dark:bg-zinc-900 border border-muffin-brown/20 rounded font-mono text-xs text-dynamic-text focus:border-muffin-gold outline-none"
+                          />
+                          {contractFormErrors.price && (
+                            <span className="text-[8px] font-bold text-red-500 block">{contractFormErrors.price}</span>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] uppercase font-bold text-gray-500 block">Fill Rate Req (%)</label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={100}
+                            value={newContractFillRate}
+                            onChange={(e) => setNewContractFillRate(parseInt(e.target.value) || 1)}
+                            className="w-full p-2 bg-white dark:bg-zinc-900 border border-muffin-brown/20 rounded font-mono text-xs text-dynamic-text focus:border-muffin-gold outline-none"
+                          />
+                          {contractFormErrors.fillRate && (
+                            <span className="text-[8px] font-bold text-red-500 block">{contractFormErrors.fillRate}</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <label className="text-[9px] uppercase font-bold text-gray-500 block">Penalty if Missed (₹)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            value={newContractFillPenalty}
+                            onChange={(e) => setNewContractFillPenalty(parseInt(e.target.value) || 0)}
+                            className="w-full p-2 bg-white dark:bg-zinc-900 border border-muffin-brown/20 rounded font-mono text-xs text-dynamic-text focus:border-muffin-gold outline-none"
+                          />
+                          {contractFormErrors.fillPenalty && (
+                            <span className="text-[8px] font-bold text-red-500 block">{contractFormErrors.fillPenalty}</span>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] uppercase font-bold text-gray-500 block">Exit Penalty (₹)</label>
+                          <input
+                            type="number"
+                            min={0}
+                            value={newContractExitPenalty}
+                            onChange={(e) => setNewContractExitPenalty(parseInt(e.target.value) || 0)}
+                            className="w-full p-2 bg-white dark:bg-zinc-900 border border-muffin-brown/20 rounded font-mono text-xs text-dynamic-text focus:border-muffin-gold outline-none"
+                          />
+                          {contractFormErrors.exitPenalty && (
+                            <span className="text-[8px] font-bold text-red-500 block">{contractFormErrors.exitPenalty}</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <button
+                        type="submit"
+                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-sans font-black uppercase tracking-wider text-xs py-2.5 rounded-xl border-b-4 border-emerald-800 shadow-md select-none cursor-pointer flex items-center justify-center gap-1.5 active:translate-y-0.5 active:border-b transition-all"
+                      >
+                        📤 Push Contract to All Teams
+                      </button>
+                    </form>
+                  </div>
+
+                  {/* Section B: Active Instructor Contracts */}
+                  <div className="space-y-4">
+                    <h3 className="text-xs uppercase font-black tracking-wider text-[#8c7662]">
+                      Active Instructor Contracts
+                    </h3>
+                    
+                    <div className="max-h-[360px] overflow-y-auto pr-1 space-y-3 custom-scroll">
+                      {!session?.instructorContracts || session.instructorContracts.length === 0 ? (
+                        <div className="p-8 border-2 border-dashed border-muffin-brown/15 rounded-xl text-center text-xs text-gray-400 italic">
+                          No contracts created yet. Use the form above to push contracts to all student teams.
+                        </div>
+                      ) : (
+                        session.instructorContracts.map(c => {
+                          const currentRound = session?.currentRound ?? 1;
+                          const status = getInstructorContractStatus(c, currentRound);
+                          const canRemove = status === 'PENDING' || status === 'OFFERED';
+                          
+                          let badgeBg = 'bg-zinc-100 text-zinc-800 border-zinc-300';
+                          if (status === 'OFFERED') badgeBg = 'bg-amber-100 text-amber-800 border-amber-300';
+                          if (status === 'ACTIVE') badgeBg = 'bg-emerald-100 text-emerald-800 border-emerald-300';
+                          if (status === 'FINISHED') badgeBg = 'bg-rose-100 text-rose-800 border-rose-300';
+
+                          return (
+                            <div key={c.id} className="p-3 bg-zinc-950/5 dark:bg-white/5 border border-muffin-brown/15 rounded-xl text-xs space-y-2 relative">
+                              <div className="flex justify-between items-start">
+                                <div className="space-y-0.5">
+                                  <span className="font-extrabold uppercase text-dynamic-text block">{c.name}</span>
+                                  <span className="text-[10px] text-gray-500 block">
+                                    Days: {c.appearsAtDay} &rarr; {c.beginsAtDay} &rarr; {c.endsAtDay}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className={`px-2 py-0.5 rounded-full border text-[8px] font-black uppercase font-mono tracking-wider ${badgeBg}`}>
+                                    {status}
+                                  </span>
+                                  {canRemove && (
+                                    <button
+                                      onClick={async () => {
+                                        if (window.confirm('Remove this contract from all teams?')) {
+                                          playBeep(220, 'sawtooth', 0.1);
+                                          await removeInstructorContract(c.id);
+                                          showToast(`Contract "${c.name}" removed`);
+                                        }
+                                      }}
+                                      className="p-1 hover:bg-red-500/10 hover:text-red-650 text-zinc-400 rounded-lg cursor-pointer transition-all"
+                                      title="Remove contract"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-4 gap-2 font-mono text-[9px] uppercase tracking-wider text-dynamic-text/75 bg-white dark:bg-zinc-950 p-2 border border-muffin-brown/10 rounded-lg">
+                                <div>
+                                  <span className="text-[7px] block font-bold text-gray-400 leading-none">Demand</span>
+                                  <span className="font-black">{c.dailyDemand} un/d</span>
+                                </div>
+                                <div>
+                                  <span className="text-[7px] block font-bold text-gray-400 leading-none">₹/unit</span>
+                                  <span className="font-black">₹{c.pricePerUnit}</span>
+                                </div>
+                                <div>
+                                  <span className="text-[7px] block font-bold text-gray-400 leading-none">Fill rate</span>
+                                  <span className="font-black">{c.fillRateRequired}%</span>
+                                </div>
+                                <div>
+                                  <span className="text-[7px] block font-bold text-gray-400 leading-none">Penalty</span>
+                                  <span className="font-black">₹{c.fillRatePenalty}</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </section>
+
             </div>
           </main>
         ) : (
@@ -1735,6 +2071,26 @@ export function InstructorDashboard() {
                 </div>
               </div>
 
+              <div className="mt-4 space-y-2">
+                <label className="text-[9px] uppercase font-bold text-gray-500 block">Assigned Contracts</label>
+                <div className="bg-white/80 border border-muffin-brown/20 p-2 rounded max-h-32 overflow-y-auto">
+                  {(session?.instructorContracts || []).map(c => (
+                    <label key={c.id} className="flex items-center gap-2 py-1 cursor-pointer hover:bg-muffin-brown/5">
+                      <input 
+                        type="checkbox" 
+                        checked={interveneContracts.includes(c.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) setInterveneContracts(prev => [...prev, c.id]);
+                          else setInterveneContracts(prev => prev.filter(id => id !== c.id));
+                        }}
+                        className="w-3 h-3 text-muffin-brown focus:ring-muffin-brown rounded border-gray-300"
+                      />
+                      <span className="font-sans text-[10px] text-gray-800">{c.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
               <div className="flex justify-end gap-3.5 mt-6 pt-3 border-t border-muffin-brown/15 z-50 relative">
                 <button
                   onClick={() => { playBeep(200, 'sine', 0.05); setInspectTeam(null); }}
@@ -1782,13 +2138,13 @@ export function InstructorDashboard() {
                   <span className="font-mono text-[8px] uppercase tracking-wider text-muffin-gold block">Experience calibrations and starting configurations</span>
                 </div>
                 <div className="font-mono text-[10px] font-black bg-muffin-gold/15 border border-muffin-gold/30 px-2 py-0.5 rounded text-muffin-brown select-none">
-                  Step {wizardStep} / 6
+                  Step {wizardStep} / 5
                 </div>
               </div>
 
               {/* Loader progress ticks */}
               <div className="w-full bg-[#deccb0] h-1.5 rounded-full overflow-hidden mb-5">
-                <div className="bg-muffin-gold h-full duration-300 transition-all" style={{ width: `${(wizardStep / 6) * 100}%` }} />
+                <div className="bg-muffin-gold h-full duration-300 transition-all" style={{ width: `${(wizardStep / 5) * 100}%` }} />
               </div>
 
               <div className="min-h-[250px] py-1">
@@ -1826,85 +2182,10 @@ export function InstructorDashboard() {
                   </div>
                 )}
 
-                {/* STEP 2: B2B Contracts registry */}
+                {/* STEP 2: Walk-In Customers Demand Breaking Points */}
                 {wizardStep === 2 && (
                   <div className="space-y-4 animate-[fadeIn_0.3s_ease-out] text-xs">
-                    <h4 className="font-sans font-black text-[#2c1a0a] text-xs uppercase tracking-wider border-b border-muffin-brown/5 pb-1">Step 2: Calibrate wholesale contracts</h4>
-                    
-                    <div className="space-y-2">
-                      <span className="text-[9px] uppercase font-bold text-gray-500 block">Custom Scenario Wholesale Contracts:</span>
-                      <div className="space-y-1 max-h-32 overflow-y-auto custom-scroll">
-                        {wContracts.map((c, i) => (
-                          <div key={i} className="flex justify-between items-center bg-white border border-muffin-brown/15 p-2 rounded-lg font-mono text-[9px] font-bold">
-                            <span>"{c.name}" Distributor: Demand {c.dailyDemand} un/day from Day {c.beginsAtDay}-{c.endsAtDay}</span>
-                            <button
-                              type="button"
-                              onClick={() => setWContracts(wContracts.filter((_, idx) => idx !== i))}
-                              className="text-red-650 cursor-pointer font-sans"
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        ))}
-                        {wContracts.length === 0 && <p className="text-gray-400 italic">No custom wholesale contracts configured yet.</p>}
-                      </div>
-                    </div>
-
-                    <div className="border border-muffin-brown/15 p-3 rounded-xl bg-zinc-950/5 grid grid-cols-3 gap-2 font-semibold">
-                      <div className="space-y-1">
-                        <label className="text-[8px] uppercase text-gray-500 block">Name</label>
-                        <input type="text" value={tempContractName} onChange={(e) => setTempContractName(e.target.value)} className="w-full bg-white border p-1" />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[8px] uppercase text-gray-500 block">Demand</label>
-                        <input type="number" value={tempContractDemand} onChange={(e) => setTempContractDemand(parseInt(e.target.value))} className="w-full bg-white border p-1" />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[8px] uppercase text-gray-500 block">Rate (₹)</label>
-                        <input type="number" value={tempContractPrice} onChange={(e) => setTempContractPrice(parseInt(e.target.value))} className="w-full bg-white border p-1" />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[8px] uppercase text-gray-500 block">Start Day</label>
-                        <input type="number" value={tempContractBegin} onChange={(e) => setTempContractBegin(parseInt(e.target.value))} className="w-full bg-white border p-1" />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[8px] uppercase text-gray-500 block">End Day</label>
-                        <input type="number" value={tempContractEnd} onChange={(e) => setTempContractEnd(parseInt(e.target.value))} className="w-full bg-white border p-1" />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[8px] uppercase text-gray-500 block">Penalties (₹)</label>
-                        <input type="number" value={tempContractPenalty} onChange={(e) => setTempContractPenalty(parseInt(e.target.value))} className="w-full bg-white border p-1" />
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setWContracts([...wContracts, {
-                            id: `contract_${Date.now()}`,
-                            name: tempContractName,
-                            appearsAtDay: Math.max(1, tempContractBegin - 2),
-                            beginsAtDay: tempContractBegin,
-                            endsAtDay: tempContractEnd,
-                            dailyDemand: tempContractDemand,
-                            pricePerUnit: tempContractPrice,
-                            fillRateRequired: tempContractFill,
-                            fillRatePenalty: tempContractPenalty,
-                            exitPenalty: Math.round(tempContractPenalty * 4.5),
-                            status: 'offered'
-                          }]);
-                        }}
-                        className="w-full col-span-3 mt-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-sans font-black uppercase text-[9px] py-2 text-center border-none shadow-xs select-none cursor-pointer"
-                      >
-                        ➕ Add Wholesale Contract Offer
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* STEP 3: Walk-In Customers Demand Breaking Points */}
-                {wizardStep === 3 && (
-                  <div className="space-y-4 animate-[fadeIn_0.3s_ease-out] text-xs">
-                    <h4 className="font-sans font-black text-[#2c1a0a] text-xs uppercase tracking-wider border-b border-muffin-brown/5 pb-1">Step 3: walk-in retail demand breaking points</h4>
+                    <h4 className="font-sans font-black text-[#2c1a0a] text-xs uppercase tracking-wider border-b border-muffin-brown/5 pb-1">Step 2: walk-in retail demand breaking points</h4>
                     
                     <div className="flex justify-between items-center p-2 rounded-lg border border-muffin-brown/15 bg-white">
                       <span className="font-semibold">Activate Poisson Distribution random demand:</span>
@@ -1969,10 +2250,10 @@ export function InstructorDashboard() {
                   </div>
                 )}
 
-                {/* STEP 4: Initial starting team conditions */}
-                {wizardStep === 4 && (
+                {/* STEP 3: Initial starting team conditions */}
+                {wizardStep === 3 && (
                   <div className="space-y-4 animate-[fadeIn_0.3s_ease-out]">
-                    <h4 className="font-sans font-black text-[#2c1a0a] text-xs uppercase tracking-wider border-b border-muffin-brown/5 pb-1">Step 4: Initial team starting parameters</h4>
+                    <h4 className="font-sans font-black text-[#2c1a0a] text-xs uppercase tracking-wider border-b border-muffin-brown/5 pb-1">Step 3: Initial team starting parameters</h4>
                     <div className="grid grid-cols-2 gap-4 font-semibold text-xs text-[#2c1a0a]">
                       <div className="space-y-1">
                         <label className="text-[9px] uppercase text-gray-400 font-extrabold block">Starting Cash per team (₹)</label>
@@ -2047,10 +2328,10 @@ export function InstructorDashboard() {
                   </div>
                 )}
 
-                {/* STEP 5: Capacity stations configure */}
-                {wizardStep === 5 && (
+                {/* STEP 4: Capacity stations configure */}
+                {wizardStep === 4 && (
                   <div className="space-y-4 animate-[fadeIn_0.3s_ease-out]">
-                    <h4 className="font-sans font-black text-[#2c1a0a] text-xs uppercase tracking-wider border-b border-muffin-brown/5 pb-1">Step 5: Capacity speeds & Purchase Costs</h4>
+                    <h4 className="font-sans font-black text-[#2c1a0a] text-xs uppercase tracking-wider border-b border-muffin-brown/5 pb-1">Step 4: Capacity speeds & Purchase Costs</h4>
                     
                     <div className="grid grid-cols-3 gap-3 text-xs font-semibold text-[#2c1a0a] text-left">
                       <div className="border border-muffin-brown/15 bg-red-500/5 p-3 rounded-xl space-y-2">
@@ -2092,10 +2373,10 @@ export function InstructorDashboard() {
                   </div>
                 )}
 
-                {/* STEP 6: Star Score thresholds */}
-                {wizardStep === 6 && (
+                {/* STEP 5: Star Score thresholds */}
+                {wizardStep === 5 && (
                   <div className="space-y-4 animate-[fadeIn_0.3s_ease-out]">
-                    <h4 className="font-sans font-black text-[#2c1a0a] text-xs uppercase tracking-wider border-b border-muffin-brown/5 pb-1">Step 6: Stars Achievement thresholds</h4>
+                    <h4 className="font-sans font-black text-[#2c1a0a] text-xs uppercase tracking-wider border-b border-muffin-brown/5 pb-1">Step 5: Stars Achievement thresholds</h4>
                     <p className="text-[10px] text-gray-400 font-serif leading-relaxed uppercase font-bold text-center">Define student grading star ratings based on cumulative total cash.</p>
                     
                     <div className="space-y-4 max-w-sm mx-auto p-4 border border-muffin-brown/15 rounded-xl bg-zinc-950/5 font-semibold text-xs text-[#2c1a0a]">
@@ -2143,10 +2424,10 @@ export function InstructorDashboard() {
                   &larr; Previous Step
                 </button>
 
-                {wizardStep < 6 ? (
+                {wizardStep < 5 ? (
                   <button
                     type="button"
-                    onClick={() => setWizardStep(s => Math.min(6, s + 1))}
+                    onClick={() => setWizardStep(s => Math.min(5, s + 1))}
                     className="px-5 py-2 bg-[#2c1a0a] text-white rounded-lg font-sans font-black uppercase text-[10px] tracking-wider hover:bg-slate-900 cursor-pointer shadow-md"
                   >
                     Next Step &rarr;
@@ -2329,6 +2610,20 @@ export function InstructorDashboard() {
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* Toast Notification */}
+      <AnimatePresence>
+        {toastMessage && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-6 right-6 bg-emerald-600 text-white font-sans font-black uppercase text-[10px] tracking-wider px-4 py-3 rounded-xl shadow-2xl border-2 border-emerald-800 z-[9999]"
+          >
+            {toastMessage}
+          </motion.div>
         )}
       </AnimatePresence>
 

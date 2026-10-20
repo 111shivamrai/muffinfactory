@@ -26,8 +26,8 @@ import {
 import { RoundResult, Contract, DEFAULT_STATIONS, Delivery, INITIAL_VALUES, DEFAULT_PARAMETERS, PRODUCTS } from '../types';
 import { db } from '../firebase';
 import { doc, updateDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { AnimatedFactoryFloor } from "./AnimatedFactoryFloor";
-import { getInitialContracts, calculateDemand, processDecision } from '../lib/gameLogic';
+import { AnimatedFactoryFloor } from "./AnimatedFactoryFloor.tsx";
+import { calculateDemand, processDecision } from '../lib/gameLogic';
 
 
 // Helper animation components for counting up values smoothly
@@ -118,6 +118,7 @@ interface LocalGameState {
   cocoaOrderQty: number;
   cocoaROP: number;
   tick: number;
+  round: number;
   lastDemand: number;
   lastSold: number;
   lastStockout: number;
@@ -277,7 +278,7 @@ export function getNextGameState(
     return c;
   });
 
-  const calculatedDemands = calculateDemand(s.tick, 0, event, PRODUCTS, s.satisfaction);
+  const calculatedDemands = calculateDemand(s.round ?? 1, 0, event, PRODUCTS, s.satisfaction);
   const demand = calculatedDemands['standard'] || 100;
   const sold = Math.min(inventory, demand);
   const stockout = demand - sold;
@@ -307,7 +308,7 @@ export function getNextGameState(
 
   const totalDayDemanded = totalContractDemanded + demand;
   const totalDayDelivered = totalContractDelivered + sold;
-  const serviceLevelIndex = totalDayDemanded > 0 ? (totalDayDelivered / totalDayDemanded) : 1;
+  const serviceLevelIndex = Math.min(1, totalDayDemanded > 0 ? (totalDayDelivered / totalDayDemanded) : 1);
   const nextSatisfaction = Math.max(0, Math.min(100, Math.round((s.satisfaction * 0.9) + (serviceLevelIndex * 10))));
 
   return {
@@ -324,6 +325,7 @@ export function getNextGameState(
     deliveries: newDeliveries,
     contracts: finalContracts,
     tick: s.tick + 1,
+    round: (s.round ?? 1) + 1,
     lastDemand: demand,
     lastSold: sold,
     lastStockout: stockout,
@@ -449,27 +451,27 @@ export function StudentDashboard() {
 
   const displayBalance = (gameState && dayTargetState)
     ? gameState.balance + (dayTargetState.balance - gameState.balance) * progressFraction
-    : (gameState?.balance ?? currentTeam.balance);
+    : (gameState?.balance ?? currentTeam?.balance ?? 0);
 
   const displayInventory = (gameState && dayTargetState)
     ? gameState.inventory + (dayTargetState.inventory - gameState.inventory) * progressFraction
-    : (gameState?.inventory ?? currentTeam.inventory?.standard ?? 0);
+    : (gameState?.inventory ?? currentTeam?.inventory?.standard ?? 0);
 
   const displayFlour = (gameState && dayTargetState)
     ? gameState.flourStock + (dayTargetState.flourStock - gameState.flourStock) * progressFraction
-    : (gameState?.flourStock ?? currentTeam.flourStock ?? 0);
+    : (gameState?.flourStock ?? currentTeam?.flourStock ?? 0);
 
   const displaySugar = (gameState && dayTargetState)
     ? gameState.sugarStock + (dayTargetState.sugarStock - gameState.sugarStock) * progressFraction
-    : (gameState?.sugarStock ?? currentTeam.sugarStock ?? 0);
+    : (gameState?.sugarStock ?? currentTeam?.sugarStock ?? 0);
 
   const displayEggs = (gameState && dayTargetState)
     ? gameState.eggsStock + (dayTargetState.eggsStock - gameState.eggsStock) * progressFraction
-    : (gameState?.eggsStock ?? currentTeam.eggsStock ?? 0);
+    : (gameState?.eggsStock ?? currentTeam?.eggsStock ?? 0);
 
   const displayCocoa = (gameState && dayTargetState)
     ? gameState.cocoaStock + (dayTargetState.cocoaStock - gameState.cocoaStock) * progressFraction
-    : (gameState?.cocoaStock ?? currentTeam.cocoaStock ?? 0);
+    : (gameState?.cocoaStock ?? currentTeam?.cocoaStock ?? 0);
 
   const displaySalesRevenue = (gameState && dayTargetState)
     ? gameState.salesRevenue + (dayTargetState.salesRevenue - gameState.salesRevenue) * progressFraction
@@ -484,16 +486,16 @@ export function StudentDashboard() {
     : (gameState?.satisfaction ?? 100);
 
   const activeTeam = {
-    ...currentTeam,
+    ...(currentTeam || {}),
     balance: displayBalance,
     flourStock: displayFlour,
     sugarStock: displaySugar,
     eggsStock: displayEggs,
     cocoaStock: displayCocoa,
     satisfaction: displaySatisfaction,
-    stations: gameState?.stations ?? currentTeam.stations,
-    deliveries: gameState?.deliveries ?? currentTeam.deliveries,
-    contracts: gameState?.contracts ?? currentTeam.contracts,
+    stations: gameState?.stations ?? currentTeam?.stations,
+    deliveries: gameState?.deliveries ?? currentTeam?.deliveries,
+    contracts: gameState?.contracts ?? currentTeam?.contracts,
     inventory: { standard: displayInventory },
   };
 
@@ -648,7 +650,7 @@ export function StudentDashboard() {
       eggsStock: initialEggs,
       cocoaStock: initialCocoa,
       deliveries: currentTeam.deliveries ?? [],
-      contracts: currentTeam.contracts ?? getInitialContracts(),
+      contracts: currentTeam.contracts ?? [],
       stations: currentTeam.stations ?? JSON.parse(JSON.stringify(DEFAULT_STATIONS)),
       flourOrderQty: currentTeam.flourOrderQty ?? 2000,
       flourROP: currentTeam.flourROP ?? 500,
@@ -659,6 +661,7 @@ export function StudentDashboard() {
       cocoaOrderQty: currentTeam.cocoaOrderQty ?? 800,
       cocoaROP: currentTeam.cocoaROP ?? 200,
       tick: currentTeam.tick ?? session?.currentRound ?? 1,
+      round: session?.currentRound ?? 1,
       lastDemand: 0,
       lastSold: 0,
       lastStockout: 0,
@@ -698,9 +701,14 @@ export function StudentDashboard() {
   // Sync ONLY instructor interventions back to gameState (not our own Firestore writes)
   useEffect(() => {
     if (!currentTeam || !gameState) return;
-    const last = stateRef.current;
-    // If both balance and tick match what we last wrote, ignore
-    if (last && currentTeam.balance === last.balance && currentTeam.tick === last.tick) return;
+    const lastWritten = lastWrittenStateRef.current;
+    
+    // Ignore stale updates from Firestore that are older than our local tick
+    if (currentTeam.tick !== undefined && currentTeam.tick < gameState.tick) return;
+    
+    // If both balance and tick match what we last wrote, ignore (it's our own write echoing back)
+    if (lastWritten && currentTeam.balance === lastWritten.balance && currentTeam.tick === lastWritten.tick) return;
+    
     // External change (instructor intervention) — apply selectively
     setGameState(prev => {
       if (!prev) return prev;
@@ -715,6 +723,10 @@ export function StudentDashboard() {
       };
     });
   }, [currentTeam?.balance, currentTeam?.tick]);
+
+  useEffect(() => {
+    setGameState(s => s ? { ...s, round: session?.currentRound ?? s.round } : null);
+  }, [session?.currentRound]);
 
   // Recompute the day's target end state whenever the base gameState changes
   useEffect(() => {
@@ -1080,7 +1092,7 @@ export function StudentDashboard() {
       {/* ─── Global Scenario Pause/End Interstitials ─── */}
       <AnimatePresence>
         {session.status === 'paused' && (
-          <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-[9999] flex flex-col items-center justify-center p-6 text-center select-none text-white font-sans">
+          <div className="fixed inset-0 bg-black/20 z-[9999] flex flex-col items-center justify-center p-6 text-center select-none text-white font-sans">
             <div className="max-w-md bg-white text-[#4a2c11] border-4 border-[#4a2c11] p-8 rounded-2xl shadow-2xl space-y-5">
               <span className="text-7xl block animate-bounce">🔒</span>
               <h3 className="text-xl font-black uppercase text-[#4a2c11] tracking-wide">Simulation Paused</h3>
@@ -1093,7 +1105,7 @@ export function StudentDashboard() {
         )}
 
         {(session.status === 'ended' || (gameState && gameState.tick >= 365)) && !dismissEndedModal && (
-          <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[9999] flex flex-col items-center justify-center p-6 text-center text-white font-sans">
+          <div className="fixed inset-0 bg-black/20 z-[9999] flex flex-col items-center justify-center p-6 text-center text-white font-sans">
             <div className="max-w-md bg-white text-[#4a2c11] border-4 border-[#4a2c11] p-8 rounded-2xl shadow-2xl space-y-6 relative">
               <button 
                 onClick={() => { playBeep(440, 'sine', 0.05); setDismissEndedModal(true); }}
@@ -2248,7 +2260,7 @@ export function StudentDashboard() {
       {/* ─── Offered & Active Contracts Modal ─── */}
       <AnimatePresence>
         {showContractsModal && (
-          <div className="fixed inset-0 bg-black/65 backdrop-blur-xs flex items-center justify-center z-[150] p-4 text-[#4a2c11]">
+          <div className="fixed inset-0 bg-black/20 flex items-center justify-center z-[150] p-4 text-[#4a2c11]">
             <motion.div 
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -2267,101 +2279,116 @@ export function StudentDashboard() {
               </h3>
 
               <div className="max-h-[350px] overflow-y-auto space-y-4 pr-1">
-                {/* Contracts Offered */}
-                <div>
-                  <h4 className="text-[10px] uppercase font-black tracking-wider text-[#8c7662] mb-2">Offered Deals</h4>
-                  {displayBalance < 2500000 ? (
-                    <div className="p-4 bg-[#f1f5f9]/80 border-2 border-dashed border-slate-400 rounded-xl text-center flex flex-col items-center justify-center gap-1.5">
-                      <span className="text-2xl">🔒</span>
-                      <span className="text-xs font-black uppercase text-[#4a2c11]">Locked until ₹2,500,000 corporate value</span>
-                      <span className="text-[10px] text-gray-500">Currently: ₹{displayBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })} / ₹2,500,000</span>
-                      <div className="w-full max-w-xs h-2 bg-slate-200 border border-slate-400 rounded-full overflow-hidden mt-1">
-                        <div className="h-full bg-slate-500" style={{ width: `${Math.min(100, (displayBalance / 2500000) * 100)}%` }} />
-                      </div>
-                    </div>
-                  ) : activeTeam.contracts?.filter(c => c.status === 'offered').length === 0 ? (
-                    <div className="p-3 border-2 border-dashed border-[#e6ccb2] rounded-xl text-center text-xs text-gray-500">
-                      No distribution contract proposals offered currently.
-                    </div>
-                  ) : (
-                    activeTeam.contracts?.filter(c => c.status === 'offered').map(c => (
-                      <div key={c.id} className="p-3 bg-[#fff9c4]/30 border-2 border-[#4a2c11] rounded-xl flex justify-between items-center text-xs gap-3">
-                        <div className="text-left">
-                          <span className="font-extrabold uppercase text-[#4a2c11] block">{c.name}</span>
-                          <span className="text-[10px] text-gray-500 block">Fulfill {c.dailyDemand} un/day @ ₹{c.pricePerUnit} (Req: {c.fillRateRequired}%)</span>
+                {(!activeTeam.contracts || activeTeam.contracts.length === 0 || activeTeam.contracts.every(c => c.status === 'pending')) ? (
+                  <div className="p-5 border-2 border-dashed border-[#e6ccb2] rounded-xl text-center text-xs text-[#8c7662]/85 leading-relaxed">
+                    No contracts available yet.<br />
+                    Your instructor will assign contracts during the simulation.
+                  </div>
+                ) : (
+                  <>
+                    {/* Contracts Offered */}
+                    <div>
+                      <h4 className="text-[10px] uppercase font-black tracking-wider text-[#8c7662] mb-2">Offered Deals</h4>
+                      {displayBalance < 2500000 ? (
+                        <div className="p-4 bg-[#f1f5f9]/80 border-2 border-dashed border-slate-400 rounded-xl text-center flex flex-col items-center justify-center gap-1.5">
+                          <span className="text-2xl">🔒</span>
+                          <span className="text-xs font-black uppercase text-[#4a2c11]">Locked until ₹2,500,000 corporate value</span>
+                          <span className="text-[10px] text-gray-500">Currently: ₹{displayBalance.toLocaleString(undefined, { maximumFractionDigits: 0 })} / ₹2,500,000</span>
+                          <div className="w-full max-w-xs h-2 bg-slate-200 border border-slate-400 rounded-full overflow-hidden mt-1">
+                            <div className="h-full bg-slate-500" style={{ width: `${Math.min(100, (displayBalance / 2500000) * 100)}%` }} />
+                          </div>
                         </div>
-                        <div className="flex gap-2 shrink-0">
-                          <button 
-                            onClick={async () => {
-                              playBeep(523, 'sine', 0.1);
-                              await acceptContract(c.id);
-                              setGameState(prev => prev ? {
-                                ...prev,
-                                contracts: prev.contracts.map(ct => ct.id === c.id ? { ...ct, status: 'accepted' as const } : ct)
-                              } : prev);
-                              showToast(`Accepted "${c.name}" contract!`);
-                            }}
-                            className="bg-[#89b873] hover:bg-[#78a562] text-white border-2 border-[#4a2c11] shadow-[0_2px_0_#4a2c11] px-3 py-1 rounded font-black uppercase tracking-wider text-[9px] active:translate-y-0.5"
-                          >
-                            Accept
-                          </button>
+                      ) : activeTeam.contracts?.filter(c => c.status === 'offered').length === 0 ? (
+                        <div className="p-3 border-2 border-dashed border-[#e6ccb2] rounded-xl text-center text-xs text-gray-500">
+                          No distribution contract proposals offered currently.
                         </div>
-                      </div>
-                    ))
-                  )}
-                </div>
+                      ) : (
+                        activeTeam.contracts?.filter(c => c.status === 'offered').map(c => (
+                          <div key={c.id} className="p-3 bg-[#fff9c4]/30 border-2 border-[#4a2c11] rounded-xl flex justify-between items-center text-xs gap-3">
+                            <div className="text-left">
+                              <span className="font-extrabold uppercase text-[#4a2c11] block">{c.name}</span>
+                              {c.id.startsWith('inst_') && (
+                                <span className="text-[9px] font-bold text-[#8c7662] block mb-0.5">📋 From Instructor</span>
+                              )}
+                              <span className="text-[10px] text-gray-500 block">Fulfill {c.dailyDemand} un/day @ ₹{c.pricePerUnit} (Req: {c.fillRateRequired}%)</span>
+                            </div>
+                            <div className="flex gap-2 shrink-0">
+                              <button 
+                                onClick={async () => {
+                                  playBeep(523, 'sine', 0.1);
+                                  await acceptContract(c.id);
+                                  setGameState(prev => prev ? {
+                                    ...prev,
+                                    contracts: prev.contracts.map(ct => ct.id === c.id ? { ...ct, status: 'accepted' as const } : ct)
+                                  } : prev);
+                                  showToast(`Accepted "${c.name}" contract!`);
+                                }}
+                                className="bg-[#89b873] hover:bg-[#78a562] text-white border-2 border-[#4a2c11] shadow-[0_2px_0_#4a2c11] px-3 py-1 rounded font-black uppercase tracking-wider text-[9px] active:translate-y-0.5"
+                              >
+                                Accept
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
 
-                {/* Contracts Accepted */}
-                <div>
-                  <h4 className="text-[10px] uppercase font-black tracking-wider text-[#8c7662] mb-2">Accepted Active Contracts</h4>
-                  {activeTeam.contracts?.filter(c => c.status === 'accepted').length === 0 ? (
-                    <div className="p-3 border-2 border-dashed border-[#e6ccb2] rounded-xl text-center text-xs text-gray-500">
-                      No accepted active distribution agreements currently.
+                    {/* Contracts Accepted */}
+                    <div>
+                      <h4 className="text-[10px] uppercase font-black tracking-wider text-[#8c7662] mb-2">Accepted Active Contracts</h4>
+                      {activeTeam.contracts?.filter(c => c.status === 'accepted').length === 0 ? (
+                        <div className="p-3 border-2 border-dashed border-[#e6ccb2] rounded-xl text-center text-xs text-gray-500">
+                          No accepted active distribution agreements currently.
+                        </div>
+                      ) : (
+                        activeTeam.contracts?.filter(c => c.status === 'accepted').map(c => (
+                          <div key={c.id} className="p-3 bg-[#e8f5e9]/30 border-2 border-[#4a2c11] rounded-xl text-xs space-y-2">
+                            <div className="flex justify-between items-start">
+                              <div className="text-left">
+                                <span className="font-extrabold uppercase text-emerald-800">{c.name}</span>
+                                {c.id.startsWith('inst_') && (
+                                  <span className="text-[9px] font-bold text-[#8c7662] block mb-0.5">📋 From Instructor</span>
+                                )}
+                                <span className="text-[10px] text-gray-500 block">Deliveries: {c.deliveredCount} / {c.demandedCount} un (Req: {c.fillRateRequired}%)</span>
+                              </div>
+                              <button 
+                                onClick={async () => {
+                                  if (window.confirm(`Abort contract ${c.name}? Will incur exit penalty of ₹${c.exitPenalty.toLocaleString()}.`)) {
+                                    playBeep(220, 'sawtooth', 0.15);
+                                    await abortContract(c.id);
+                                    setGameState(prev => prev ? {
+                                      ...prev,
+                                      balance: Math.max(0, prev.balance - (c.exitPenalty ?? 0)),
+                                      contracts: prev.contracts.map(ct => ct.id === c.id ? { ...ct, status: 'aborted' as const } : ct)
+                                    } : prev);
+                                    showToast(`Aborted "${c.name}"!`);
+                                  }
+                                }}
+                                className="bg-red-500 hover:bg-red-600 text-white border-2 border-[#4a2c11] shadow-[0_2px_0_#4a2c11] px-2 py-0.5 rounded font-black uppercase tracking-wider text-[8px] active:translate-y-0.5"
+                              >
+                                Abort (Penalty ₹{c.exitPenalty})
+                              </button>
+                            </div>
+                            
+                            {/* Progress fill rate bar */}
+                            <div className="space-y-1">
+                              <div className="flex justify-between text-[9px] text-gray-500">
+                                <span>Fulfillment rate: {c.demandedCount > 0 ? Math.round((c.deliveredCount / c.demandedCount) * 100) : 0}%</span>
+                                <span>Target: {c.fillRateRequired}%</span>
+                              </div>
+                              <div className="w-full h-2 bg-gray-200 border-2 border-[#4a2c11] rounded-full overflow-hidden">
+                                <div 
+                                  className="h-full bg-emerald-600"
+                                  style={{ width: `${c.demandedCount > 0 ? Math.min(100, (c.deliveredCount / c.demandedCount) * 100) : 0}%` }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
                     </div>
-                  ) : (
-                    activeTeam.contracts?.filter(c => c.status === 'accepted').map(c => (
-                      <div key={c.id} className="p-3 bg-[#e8f5e9]/30 border-2 border-[#4a2c11] rounded-xl text-xs space-y-2">
-                        <div className="flex justify-between items-start">
-                          <div className="text-left">
-                            <span className="font-extrabold uppercase text-emerald-800">{c.name}</span>
-                            <span className="text-[10px] text-gray-500 block">Deliveries: {c.deliveredCount} / {c.demandedCount} un (Req: {c.fillRateRequired}%)</span>
-                          </div>
-                          <button 
-                            onClick={async () => {
-                              if (window.confirm(`Abort contract ${c.name}? Will incur exit penalty of ₹${c.exitPenalty.toLocaleString()}.`)) {
-                                playBeep(220, 'sawtooth', 0.15);
-                                await abortContract(c.id);
-                                setGameState(prev => prev ? {
-                                  ...prev,
-                                  balance: Math.max(0, prev.balance - (c.exitPenalty ?? 0)),
-                                  contracts: prev.contracts.map(ct => ct.id === c.id ? { ...ct, status: 'aborted' as const } : ct)
-                                } : prev);
-                                showToast(`Aborted "${c.name}"!`);
-                              }
-                            }}
-                            className="bg-red-500 hover:bg-red-600 text-white border-2 border-[#4a2c11] shadow-[0_2px_0_#4a2c11] px-2 py-0.5 rounded font-black uppercase tracking-wider text-[8px] active:translate-y-0.5"
-                          >
-                            Abort (Penalty ₹{c.exitPenalty})
-                          </button>
-                        </div>
-                        
-                        {/* Progress fill rate bar */}
-                        <div className="space-y-1">
-                          <div className="flex justify-between text-[9px] text-gray-500">
-                            <span>Fulfillment rate: {c.demandedCount > 0 ? Math.round((c.deliveredCount / c.demandedCount) * 100) : 0}%</span>
-                            <span>Target: {c.fillRateRequired}%</span>
-                          </div>
-                          <div className="w-full h-2 bg-gray-200 border-2 border-[#4a2c11] rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-emerald-600"
-                              style={{ width: `${c.demandedCount > 0 ? Math.min(100, (c.deliveredCount / c.demandedCount) * 100) : 0}%` }}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
+                  </>
+                )}
               </div>
             </motion.div>
           </div>
